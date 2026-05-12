@@ -5,7 +5,7 @@ import pytest
 
 from podcast_auto_editor.artifacts import run_paths
 from podcast_auto_editor.config import load_config
-from podcast_auto_editor.pipeline import accept_all, transcribe_and_write
+from podcast_auto_editor.pipeline import accept_all, retake_operation_is_render_safe, transcribe_and_write
 from podcast_auto_editor.subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from podcast_auto_editor.timeline import create_noop_timeline
 
@@ -62,3 +62,15 @@ def test_quality_missing_clipping_metric_fails():
     report = evaluate_quality({"integrated_lufs": -16.0, "true_peak_db": -2.0}, 2, load_config().quality)
     assert report["passed"] is False
     assert [c for c in report["checks"] if c["name"] == "clipped_samples"][0]["passed"] is False
+
+
+def test_retake_render_safety_accepts_manual_review_provenance_only_when_complete():
+    op = {
+        "type": "retake_cut",
+        "state": "accepted",
+        "provenance": {"manual_review": {"decision": "accepted", "reviewer": "producer", "reviewed_at": "2026-05-12T00:00:00Z"}},
+    }
+    assert retake_operation_is_render_safe(op) is True
+
+    op["provenance"]["manual_review"]["reviewer"] = ""
+    assert retake_operation_is_render_safe(op) is False

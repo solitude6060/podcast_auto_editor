@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .artifacts import run_paths, write_diff_artifacts, write_recovery_artifacts
 from .config import load_config
-from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, run_pipeline, transcribe_and_write, write_preview
+from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, write_preview
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
 
@@ -35,6 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_reject.add_argument("timeline")
     p_reject.add_argument("--operation-id", action="append")
     p_reject.add_argument("--out", required=True)
+
+    p_review_accept = sub.add_parser("review-accept")
+    p_review_accept.add_argument("timeline")
+    p_review_accept.add_argument("--operation-id", action="append")
+    p_review_accept.add_argument("--reviewer", required=True)
+    p_review_accept.add_argument("--note", default="")
+    p_review_accept.add_argument("--out", required=True)
 
     p_render = sub.add_parser("render")
     p_render.add_argument("input")
@@ -86,6 +93,18 @@ def main(argv: list[str] | None = None) -> int:
         write_json(args.out, rejected)
         print(args.out)
         return 0
+    if args.command == "review-accept":
+        if not args.operation_id:
+            print("review-accept requires at least one --operation-id", file=sys.stderr)
+            return 1
+        try:
+            reviewed = review_accept_operations(read_json(args.timeline), args.operation_id, args.reviewer, args.note)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        write_json(args.out, reviewed)
+        print(args.out)
+        return 0
     if args.command == "render":
         timeline = read_json(args.timeline)
         if any(op.get("state") == "proposed" for op in timeline.get("operations", [])) and not args.accept_safe_defaults:
@@ -94,9 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.accept_safe_defaults:
             from .pipeline import accept_safe_defaults
             timeline = accept_safe_defaults(timeline)
-        unsafe_retakes = [op for op in timeline.get("operations", []) if op.get("type") == "retake_cut" and op.get("state") == "accepted" and not op.get("provenance", {}).get("auto_accept_policy", "").startswith("accepted")]
+        unsafe_retakes = [op for op in timeline.get("operations", []) if op.get("state") == "accepted" and not retake_operation_is_render_safe(op)]
         if unsafe_retakes:
-            print("accepted retake_cut operations must carry successful auto_accept_policy or be accepted through a future explicit review command", file=sys.stderr)
+            print("accepted retake_cut operations must carry successful auto_accept_policy or explicit manual review", file=sys.stderr)
             return 1
         episode_id = args.episode_id or episode_id_from_path(args.input)
         paths = run_paths(args.out, episode_id)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +103,65 @@ def accept_all(timeline: dict[str, Any]) -> dict[str, Any]:
         _attach_artifact_refs(op)
     accepted["recovery"] = build_recovery(accepted)
     return accepted
+
+
+def review_accept_operations(
+    timeline: dict[str, Any],
+    operation_ids: list[str],
+    reviewer: str,
+    note: str = "",
+    reviewed_at: str | None = None,
+) -> dict[str, Any]:
+    """Accept selected retake operations after explicit human review.
+
+    This is intentionally not a bulk-accept helper: retake cuts affect speech
+    meaning, so every accepted retake must be named by operation id and carry
+    review provenance before render is allowed.
+    """
+    if not operation_ids:
+        raise ValueError("review acceptance requires at least one operation id")
+    reviewer = reviewer.strip()
+    if not reviewer:
+        raise ValueError("reviewer may not be empty")
+    selected = set(operation_ids)
+    updated = deepcopy(timeline)
+    seen: set[str] = set()
+    reviewed_at = reviewed_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    for op in updated.get("operations", []):
+        operation_id = op.get("operation_id")
+        if operation_id not in selected:
+            continue
+        seen.add(operation_id)
+        if op.get("type") != "retake_cut":
+            raise ValueError(f"operation {operation_id} is not a retake_cut")
+        op["state"] = "accepted"
+        _attach_artifact_refs(op)
+        op.setdefault("provenance", {})["manual_review"] = {
+            "decision": "accepted",
+            "reviewer": reviewer,
+            "note": note,
+            "reviewed_at": reviewed_at,
+        }
+    missing = selected.difference(seen)
+    if missing:
+        raise ValueError(f"unknown operation id(s): {', '.join(sorted(missing))}")
+    updated["recovery"] = build_recovery(updated)
+    return updated
+
+
+def retake_operation_is_render_safe(operation: dict[str, Any]) -> bool:
+    if operation.get("type") != "retake_cut":
+        return True
+    provenance = operation.get("provenance", {})
+    auto_policy = str(provenance.get("auto_accept_policy", ""))
+    if auto_policy.startswith("accepted"):
+        return True
+    manual_review = provenance.get("manual_review", {})
+    return (
+        manual_review.get("decision") == "accepted"
+        and bool(str(manual_review.get("reviewer", "")).strip())
+        and bool(str(manual_review.get("reviewed_at", "")).strip())
+    )
 
 
 def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, Any]) -> None:

@@ -18,7 +18,9 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 ## Safety policy
 - No bulk acceptance of `retake_cut` operations.
 - Retake auto-accept requires `auto_low_risk_speech`, confidence >= 0.90, low risk, evidence, preview, diff, recovery, and successful policy provenance.
+- Explicit human retake acceptance is supported only through `review-accept`, which requires selected operation IDs and records reviewer/note/timestamp provenance.
 - CLI `render` refuses proposed timelines unless `--accept-safe-defaults` is used for deterministic silence only.
+- CLI `render` refuses accepted `retake_cut` operations unless they carry either successful auto-accept provenance or explicit manual-review provenance.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -30,11 +32,13 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 ## TDD record
 - Added regression tests for config defaults, timeline validation, silence proposals, retake policy, artifact paths, subtitles, chapters, CLI safety, FFmpeg acceptance paths, quality gates, and MP4 sync measurement.
 - Architect rejection around MP4 sync fallback was resolved with a red/green regression test: missing stream durations must stay `None` and fail sync validation.
+- Next increment added red/green tests for explicit retake review acceptance, no-bulk review acceptance, and render refusal for plain accepted retakes without review provenance.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q podcast_auto_editor tests` => passed.
 - Architect final re-verification => APPROVED.
+- `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 33 passed after retake review workflow increment.
 
 ## Git hygiene
 - `.omx/`, `runs/`, `artifacts/`, Python bytecode, and pytest cache are ignored.
