@@ -53,3 +53,16 @@ Last commit:
 - Historical co-author trailers in other repositories were not rewritten; that requires per-repo history rewrite and force-push decisions.
 - `.omx/` local runtime remains present but ignored by Git.
 - Real-world podcast quality beyond synthetic FFmpeg fixtures remains future validation work.
+
+## UV development environment update
+User requested `uv` for development environment management. The project now tracks `uv.lock`, declares the build backend in `pyproject.toml`, and uses `uv run --group dev` for verification.
+
+Additional verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv lock
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests
+```
+
+Result: 29 passed; compileall passed.

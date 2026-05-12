@@ -39,3 +39,13 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 ## Git hygiene
 - `.omx/`, `runs/`, `artifacts/`, Python bytecode, and pytest cache are ignored.
 - Commit messages should follow Lore trailers but no longer require `Co-authored-by: OmX`.
+
+## Development environment
+Development is managed with `uv`:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests
+```
+
+`uv.lock` is tracked for reproducibility. `.venv/` remains ignored.
