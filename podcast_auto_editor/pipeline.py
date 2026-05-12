@@ -205,10 +205,41 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
     return timeline
 
 
+def _clean_seconds(value: float) -> float:
+    rounded = round(value, 6)
+    return 0.0 if rounded == -0.0 else rounded
+
+
+def remap_cues_to_output(cues: list[dict[str, Any]], recovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """Map source-timestamp transcript cues onto the edited output timeline."""
+    kept_segments = recovery.get("source_to_output", [])
+    if not kept_segments:
+        return [dict(cue) for cue in cues]
+    remapped: list[dict[str, Any]] = []
+    for cue in cues:
+        cue_start = float(cue.get("start", 0.0))
+        cue_end = float(cue.get("end", cue_start))
+        if cue_end <= cue_start:
+            continue
+        for kept in kept_segments:
+            source_start = float(kept["source_start"])
+            source_end = float(kept["source_end"])
+            overlap_start = max(cue_start, source_start)
+            overlap_end = min(cue_end, source_end)
+            if overlap_end <= overlap_start:
+                continue
+            offset = float(kept["output_start"]) - source_start
+            mapped = dict(cue)
+            mapped["start"] = _clean_seconds(overlap_start + offset)
+            mapped["end"] = _clean_seconds(overlap_end + offset)
+            remapped.append(mapped)
+    return remapped
+
+
 def transcribe_and_write(paths: RunPaths, timeline: dict[str, Any], cues: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     ensure_run_dirs(paths)
     duration = float(timeline.get("recovery", {}).get("source_to_output", [{}])[-1].get("output_end", timeline.get("media_manifest", {}).get("duration", 0.0))) if timeline.get("recovery", {}).get("source_to_output") else float(timeline.get("media_manifest", {}).get("duration", 0.0))
-    cues = cues if cues is not None else []
+    cues = remap_cues_to_output(cues if cues is not None else [], timeline.get("recovery", {}))
     transcript = {
         "source": "post-edit-stub",
         "final_render": str(paths.edited_wav),

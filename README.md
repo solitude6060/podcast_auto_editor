@@ -28,3 +28,5 @@ python -m podcast_auto_editor review-accept runs/episode/timeline.proposed.v1.js
 ```
 
 Plain `accept` is still insufficient for rendering accepted `retake_cut` operations; render requires either successful auto-accept provenance or explicit manual-review provenance.
+
+Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When accepted cuts remove source ranges, supplied transcript cues are remapped through the timeline recovery map before assets are written.

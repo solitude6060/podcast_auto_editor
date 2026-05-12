@@ -5,7 +5,7 @@ import pytest
 
 from podcast_auto_editor.artifacts import run_paths
 from podcast_auto_editor.config import load_config
-from podcast_auto_editor.pipeline import accept_all, retake_operation_is_render_safe, transcribe_and_write
+from podcast_auto_editor.pipeline import accept_all, remap_cues_to_output, retake_operation_is_render_safe, transcribe_and_write
 from podcast_auto_editor.subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from podcast_auto_editor.timeline import create_noop_timeline
 
@@ -55,6 +55,39 @@ def test_transcribe_and_write_creates_required_assets():
         assert paths.subtitles_srt.exists()
         assert paths.subtitles_vtt.exists()
         assert paths.chapters.exists()
+
+
+def test_remap_cues_to_output_shifts_drops_and_splits_by_recovery_map():
+    cues = [
+        {"start": 0.5, "end": 1.0, "text": "before"},
+        {"start": 2.2, "end": 2.8, "text": "removed"},
+        {"start": 1.5, "end": 3.5, "text": "spans cut"},
+        {"start": 4.0, "end": 5.0, "text": "after"},
+    ]
+    recovery = {
+        "source_to_output": [
+            {"source_start": 0.0, "source_end": 2.0, "output_start": 0.0, "output_end": 2.0},
+            {"source_start": 3.0, "source_end": 6.0, "output_start": 2.0, "output_end": 5.0},
+        ]
+    }
+
+    assert remap_cues_to_output(cues, recovery) == [
+        {"start": 0.5, "end": 1.0, "text": "before"},
+        {"start": 1.5, "end": 2.0, "text": "spans cut"},
+        {"start": 2.0, "end": 2.5, "text": "spans cut"},
+        {"start": 3.0, "end": 4.0, "text": "after"},
+    ]
+
+
+def test_transcribe_and_write_uses_output_timestamps_after_cut():
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 5.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "accepted", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": "preview.mp3", "diff_ref": "diff.json", "recovery_ref": "recovery.json"})
+    timeline = accept_all(timeline)
+    with tempfile.TemporaryDirectory() as td:
+        paths = run_paths(Path(td), "ep1")
+        transcribe_and_write(paths, timeline, cues=[{"start": 3.0, "end": 4.0, "text": "after cut"}])
+        assert '"start": 2.0' in paths.transcript.read_text()
+        assert "00:00:02,000" in paths.subtitles_srt.read_text()
 
 
 def test_quality_missing_clipping_metric_fails():

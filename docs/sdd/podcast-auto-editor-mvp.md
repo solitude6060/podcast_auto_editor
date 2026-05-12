@@ -12,6 +12,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Python stdlib package: `podcast_auto_editor`.
 - CLI entrypoint: `python -m podcast_auto_editor` / `podcast-auto-editor`.
 - Canonical `timeline.v1` JSON is the source of truth before media mutation.
+- Transcript/subtitle/chapter assets use edited-output timestamps derived from `recovery.source_to_output`.
 - FFmpeg/ffprobe are used for real media probe/render/quality measurement when available.
 - Speech/retake cuts default to `proposed`; deterministic silence cuts may be safely accepted by explicit safe-default path.
 
@@ -33,12 +34,14 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Added regression tests for config defaults, timeline validation, silence proposals, retake policy, artifact paths, subtitles, chapters, CLI safety, FFmpeg acceptance paths, quality gates, and MP4 sync measurement.
 - Architect rejection around MP4 sync fallback was resolved with a red/green regression test: missing stream durations must stay `None` and fail sync validation.
 - Next increment added red/green tests for explicit retake review acceptance, no-bulk review acceptance, and render refusal for plain accepted retakes without review provenance.
+- Next increment added red/green tests for transcript cue remapping through recovery maps, including shifted, dropped, and split cues after accepted cuts.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q podcast_auto_editor tests` => passed.
 - Architect final re-verification => APPROVED.
 - `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 33 passed after retake review workflow increment.
+- `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 35 passed after transcript time-remap increment.
 
 ## Git hygiene
 - `.omx/`, `runs/`, `artifacts/`, Python bytecode, and pytest cache are ignored.
