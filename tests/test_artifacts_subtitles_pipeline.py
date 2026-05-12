@@ -1,0 +1,64 @@
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from podcast_auto_editor.artifacts import run_paths
+from podcast_auto_editor.config import load_config
+from podcast_auto_editor.pipeline import accept_all, transcribe_and_write
+from podcast_auto_editor.subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
+from podcast_auto_editor.timeline import create_noop_timeline
+
+
+def test_artifact_paths_are_episode_scoped_and_reject_traversal():
+    paths = run_paths("runs", "episode-1")
+    assert str(paths.proposed_timeline).endswith("runs/episode-1/timeline.proposed.v1.json")
+    assert str(paths.timeline_diff).endswith("runs/episode-1/diff/timeline-diff.json")
+    with pytest.raises(ValueError):
+        run_paths("runs", "../evil")
+
+
+def test_srt_and_vtt_format_and_validation():
+    cues = [{"start": 0.0, "end": 1.25, "text": "hello"}, {"start": 2.0, "end": 3.0, "text": "world"}]
+    assert "00:00:01,250" in cues_to_srt(cues)
+    assert "WEBVTT" in cues_to_vtt(cues)
+    assert "00:00:01.250" in cues_to_vtt(cues)
+    assert validate_cues(cues, duration=3.0) == []
+    assert validate_cues([{"start": 2, "end": 1, "text": "bad"}], duration=3.0)
+
+
+def test_chapters_are_monotonic_in_bounds_and_heuristic():
+    cues = [{"start": 0, "end": 1, "text": "opening"}, {"start": 301, "end": 302, "text": "new topic"}]
+    chapters = heuristic_chapters(cues, duration=600, min_chapter_s=300)
+    assert len(chapters) == 2
+    assert validate_chapters(chapters, 600) == []
+    chapters[1]["start"] = 700
+    assert validate_chapters(chapters, 600)
+
+
+def test_accept_all_adds_refs_and_recovery():
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 5.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": None, "diff_ref": None, "recovery_ref": None})
+    accepted = accept_all(timeline)
+    op = accepted["operations"][0]
+    assert op["state"] == "accepted"
+    assert op["preview_ref"]
+    assert accepted["recovery"]["removed_segments"][0]["operation_id"] == "cut1"
+
+
+def test_transcribe_and_write_creates_required_assets():
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    with tempfile.TemporaryDirectory() as td:
+        paths = run_paths(Path(td), "ep1")
+        transcribe_and_write(paths, timeline, cues=[{"start": 0.0, "end": 1.0, "text": "hello"}])
+        assert paths.transcript.exists()
+        assert paths.subtitles_srt.exists()
+        assert paths.subtitles_vtt.exists()
+        assert paths.chapters.exists()
+
+
+def test_quality_missing_clipping_metric_fails():
+    from podcast_auto_editor.quality import evaluate_quality
+    report = evaluate_quality({"integrated_lufs": -16.0, "true_peak_db": -2.0}, 2, load_config().quality)
+    assert report["passed"] is False
+    assert [c for c in report["checks"] if c["name"] == "clipped_samples"][0]["passed"] is False
