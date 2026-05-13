@@ -30,6 +30,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Removed-segments preview uses actual operation source ranges, not a generic source excerpt.
 - Render fails when required quality gates fail, instead of treating failed quality metadata as success.
 - Speech cleanup heuristics may propose filler/false-start `speech_cut` operations, but they remain proposed and require manual review before render.
+- MP4 render preflights source audio/video duration and drift before video export, and output sync reports include measured stream durations.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -50,6 +51,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Ralph Phase 3 added preview fidelity tests for FFmpeg `aselect` over removed operation ranges.
 - Ralph Phase 4 added quality-gate fail-fast tests for render output.
 - Ralph Phase 5 added proposed-only speech cleanup tests and manual-review render safety for `speech_cut`.
+- Follow-up Phase 6 added source A/V sync preflight and measured duration diagnostics.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

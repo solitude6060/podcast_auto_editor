@@ -68,3 +68,5 @@ Removed-segment previews are generated from the actual operation source ranges, 
 Render exits with a clear quality-gate failure when loudness, true peak, clipping, or A/V sync checks fail; failed quality metadata is diagnostic, not a publishable success state.
 
 Speech cleanup heuristics can propose filler or false-start removals as `speech_cut` operations, but these speech-changing edits stay proposed until explicitly accepted with `review-accept`.
+
+Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.

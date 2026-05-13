@@ -216,6 +216,27 @@ def test_render_fails_when_quality_gate_fails(monkeypatch, tmp_path):
         render("input.wav", paths, timeline, load_config())
 
 
+def test_render_fails_before_video_render_when_source_sync_invalid(monkeypatch, tmp_path):
+    from podcast_auto_editor import pipeline
+
+    timeline = create_noop_timeline(
+        {"path": "input.mp4", "duration": 10.0},
+        [
+            {"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 2, "duration": 10.0},
+            {"track_id": "video:0", "type": "video", "duration": None, "timebase": "1/90000"},
+        ],
+    )
+    paths = run_paths(tmp_path, "ep1")
+    called = {"video": False}
+    monkeypatch.setattr(pipeline, "render_audio", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline, "measure_audio_quality", lambda path: {"integrated_lufs": -16.0, "true_peak_db": -2.0, "clipped_samples": 0})
+    monkeypatch.setattr(pipeline, "render_video", lambda *args, **kwargs: called.__setitem__("video", True))
+
+    with pytest.raises(MediaToolError, match="source av sync validation failed"):
+        render("input.mp4", paths, timeline, load_config())
+    assert called["video"] is False
+
+
 def test_retake_render_safety_accepts_manual_review_provenance_only_when_complete():
     op = {
         "type": "retake_cut",

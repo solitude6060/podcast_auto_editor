@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
+from .config import QualityConfig
 from .timeline import sha256_file
 
 _SILENCE_START = re.compile(r"silence_start: (?P<value>[0-9.]+)")
@@ -166,7 +167,29 @@ def measure_av_sync(path: str | Path) -> dict[str, Any]:
         "passed": duration_drift <= 0.100,
         "drift_s": duration_drift,
         "tolerance_s": 0.100,
+        "audio_duration_s": audio_duration,
+        "video_duration_s": video_duration,
         "method": "ffprobe-audio-video-duration-delta",
+    }
+
+
+def validate_source_av_sync(tracks: list[dict[str, Any]], quality: QualityConfig) -> dict[str, Any]:
+    audio = next((track for track in tracks if track.get("type") == "audio"), None)
+    video = next((track for track in tracks if track.get("type") == "video"), None)
+    if not audio or not video:
+        return {"passed": False, "drift_s": None, "tolerance_s": quality.av_sync_tolerance_s, "method": "timeline-source-duration-delta", "reason": "missing source audio or video stream"}
+    if audio.get("duration") is None or video.get("duration") is None:
+        return {"passed": False, "drift_s": None, "tolerance_s": quality.av_sync_tolerance_s, "method": "timeline-source-duration-delta", "reason": "unmeasured source stream duration"}
+    audio_duration = float(audio["duration"])
+    video_duration = float(video["duration"])
+    drift = abs(audio_duration - video_duration)
+    return {
+        "passed": drift <= quality.av_sync_tolerance_s,
+        "drift_s": drift,
+        "tolerance_s": quality.av_sync_tolerance_s,
+        "audio_duration_s": audio_duration,
+        "video_duration_s": video_duration,
+        "method": "timeline-source-duration-delta",
     }
 
 def render_audio(input_path: str | Path, output_path: str | Path, kept: list[dict[str, float]], config: AppConfig, channels: int = 2) -> None:

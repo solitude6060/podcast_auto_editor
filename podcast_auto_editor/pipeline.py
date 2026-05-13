@@ -9,7 +9,7 @@ from typing import Any
 
 from .artifacts import RunPaths, ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import AppConfig, config_to_dict
-from .media import MediaToolError, detect_silence, measure_audio_quality, measure_av_sync, probe_media, render_audio, render_video
+from .media import MediaToolError, detect_silence, measure_audio_quality, measure_av_sync, probe_media, render_audio, render_video, validate_source_av_sync
 from .quality import evaluate_quality
 from .retake import detect_retake_candidates, detect_speech_cleanup_candidates, may_auto_accept_retake
 from .silence import propose_silence_cuts
@@ -285,6 +285,11 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
     metrics = measure_audio_quality(paths.edited_wav)
     av_sync_report = None
     if any(track.get("type") == "video" for track in timeline.get("tracks", [])):
+        source_sync_report = validate_source_av_sync(timeline.get("tracks", []), config.quality)
+        timeline.setdefault("export_metadata", {})["source_av_sync_report"] = source_sync_report
+        if not source_sync_report["passed"]:
+            reason = source_sync_report.get("reason") or f"drift {source_sync_report.get('drift_s')}s exceeds tolerance"
+            raise MediaToolError(f"source av sync validation failed: {reason}")
         render_video(input_path, paths.edited_mp4, kept)
         av_sync_report = measure_av_sync(paths.edited_mp4)
     gate_report = evaluate_quality(metrics, channels, config.quality)
