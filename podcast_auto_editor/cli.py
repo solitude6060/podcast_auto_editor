@@ -13,6 +13,7 @@ from .fixtures import make_demo_fixtures
 from .html_report import build_html_report, write_html_report
 from .local_review_server import serve_review_app, validate_review_host
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
+from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
@@ -120,6 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_explain.add_argument("--operation-id", required=True)
     p_explain.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
+    p_project = sub.add_parser("project", help="Project manifest commands")
+    project_sub = p_project.add_subparsers(dest="project_command", required=True)
+    p_project_init = project_sub.add_parser("init", help="Create a local project manifest")
+    p_project_init.add_argument("project_dir")
+    p_project_init.add_argument("--name")
+
+    p_batch = sub.add_parser("batch", help="Batch processing commands")
+    batch_sub = p_batch.add_subparsers(dest="batch_command", required=True)
+    p_batch_dry_run = batch_sub.add_parser("dry-run", help="Run dry-run over multiple inputs and write aggregate reports")
+    p_batch_dry_run.add_argument("inputs", nargs="+")
+    p_batch_dry_run.add_argument("--out", default="runs")
+    p_batch_dry_run.add_argument("--fail-fast", action="store_true")
+
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
 
@@ -135,6 +149,25 @@ def _load_optional_transcript(path: str | None) -> list[dict] | None:
     if not path:
         return None
     return load_transcript_segments(path)
+
+
+def _execute_dry_run(input_path: str | Path, out_dir: str | Path, config, episode_id: str | None = None, transcript_segments: list[dict] | None = None):
+    episode = episode_id or episode_id_from_path(input_path)
+    paths = run_paths(out_dir, episode)
+    timeline = probe(input_path, paths, config)
+    proposed = analyze(input_path, timeline, config)
+    if transcript_segments:
+        proposed = add_retake_proposals(proposed, transcript_segments, config, artifacts_exist=False)
+    write_json(paths.proposed_timeline, proposed)
+    ensure_run_dirs(paths)
+    write_preview(paths, input_path, proposed)
+    accepted = accept_safe_defaults(proposed)
+    write_diff_artifacts(paths, proposed, accepted)
+    write_recovery_artifacts(paths, accepted)
+    accepted = transcribe_and_write(paths, accepted, cues=transcript_segments or [])
+    write_json(paths.accepted_timeline, accepted)
+    write_manifest(paths, {"input": str(input_path), "episode_id": episode, "dry_run": True, "artifacts": {"accepted_timeline": str(paths.accepted_timeline), "transcript": str(paths.transcript)}, "config": config_to_dict(config)})
+    return paths
 
 
 def _build_run_report(run_dir: str | Path) -> dict:
@@ -396,21 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, TranscriptValidationError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
-        episode_id = args.episode_id or episode_id_from_path(args.input)
-        paths = run_paths(args.out, episode_id)
-        timeline = probe(args.input, paths, config)
-        proposed = analyze(args.input, timeline, config)
-        if transcript_segments:
-            proposed = add_retake_proposals(proposed, transcript_segments, config, artifacts_exist=False)
-        write_json(paths.proposed_timeline, proposed)
-        ensure_run_dirs(paths)
-        write_preview(paths, args.input, proposed)
-        accepted = accept_safe_defaults(proposed)
-        write_diff_artifacts(paths, proposed, accepted)
-        write_recovery_artifacts(paths, accepted)
-        accepted = transcribe_and_write(paths, accepted, cues=transcript_segments or [])
-        write_json(paths.accepted_timeline, accepted)
-        write_manifest(paths, {"input": str(args.input), "episode_id": episode_id, "dry_run": True, "artifacts": {"accepted_timeline": str(paths.accepted_timeline), "transcript": str(paths.transcript)}, "config": config_to_dict(config)})
+        paths = _execute_dry_run(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments)
         print(paths.root)
         return 0
     if args.command == "report":
@@ -486,6 +505,26 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(format_explanation_markdown(explanation), end="")
         return 0
+    if args.command == "project":
+        if args.project_command == "init":
+            manifest_path = init_project(args.project_dir, name=args.name)
+            print(manifest_path)
+            return 0
+    if args.command == "batch":
+        if args.batch_command == "dry-run":
+            episodes = []
+            for input_path in args.inputs:
+                try:
+                    paths = _execute_dry_run(input_path, args.out, config)
+                    episodes.append(successful_episode(input_path, paths.root, _build_run_report(paths.root)))
+                except (OSError, ValueError) as exc:
+                    episodes.append(failed_episode(input_path, exc))
+                    if args.fail_fast:
+                        break
+            report = build_batch_report(episodes, args.out)
+            report_json, _ = write_batch_reports(args.out, report)
+            print(report_json)
+            return 1 if report["summary"]["failed"] else 0
     if args.command == "validate-transcript":
         try:
             segments = load_transcript_segments(args.transcript_json)
