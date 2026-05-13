@@ -1,5 +1,7 @@
 # Release notes template
 
+Traditional Chinese version: [`release-notes-template.zh-TW.md`](release-notes-template.zh-TW.md)
+
 ## Version
 `vX.Y.Z` — YYYY-MM-DD
 
