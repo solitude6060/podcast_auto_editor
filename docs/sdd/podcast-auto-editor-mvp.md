@@ -33,6 +33,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - MP4 render preflights source audio/video duration and drift before video export, and output sync reports include measured stream durations.
 - `scripts/smoke.sh` provides a fresh-clone local verification path over uv tests, compileall, CLI help, and optional FFmpeg fixtures.
 - Advanced preview metadata includes per-operation before/after and removed-audio review refs under `preview/operations/<operation_id>/`.
+- Advanced preview generation creates per-operation removed-audio clips from exact operation source ranges.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -56,6 +57,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Follow-up Phase 6 added source A/V sync preflight and measured duration diagnostics.
 - Follow-up Phase 7 added smoke-test script coverage for local operational verification.
 - Advanced Phase A2 added per-operation preview metadata/ref attachment tests.
+- Advanced Phase A2 continued with per-operation removed clip generation tests.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

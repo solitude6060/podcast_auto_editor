@@ -184,6 +184,47 @@ def test_removed_segments_preview_uses_operation_ranges(monkeypatch, tmp_path):
     assert "asetpts=N/SR/TB" in filter_arg
 
 
+def test_write_preview_generates_per_operation_removed_clip(monkeypatch, tmp_path):
+    from podcast_auto_editor import media
+
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 5.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append(
+        {
+            "operation_id": "cut1",
+            "type": "silence_cut",
+            "source_range": {"start": 1.0, "end": 2.5},
+            "output_range": None,
+            "affected_tracks": ["audio:0"],
+            "state": "accepted",
+            "risk": "deterministic",
+            "confidence": 1.0,
+            "provenance": {},
+            "preview_ref": None,
+            "diff_ref": "diff/timeline-diff.json",
+            "recovery_ref": "recovery/recovery-map.json",
+        }
+    )
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"fake")
+    paths = run_paths(tmp_path, "ep1")
+    commands = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    monkeypatch.setattr(media, "require_tool", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(media, "run_command", lambda command: commands.append(command) or Result())
+
+    write_preview(paths, input_path, timeline)
+
+    per_operation_commands = [command for command in commands if str(command[-1]).endswith("preview/operations/cut1/removed.mp3")]
+    assert len(per_operation_commands) == 1
+    filter_arg = per_operation_commands[0][per_operation_commands[0].index("-af") + 1]
+    assert "aselect='between(t,1.000000,2.500000)'" in filter_arg
+    assert any(str(command[-1]).endswith("preview/removed-segments-preview.mp3") for command in commands)
+
+
 def test_transcribe_and_write_creates_required_assets():
     timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     with tempfile.TemporaryDirectory() as td:

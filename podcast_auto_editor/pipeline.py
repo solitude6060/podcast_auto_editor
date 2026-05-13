@@ -270,6 +270,26 @@ def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, A
         raise MediaToolError(result.stderr.strip() or "preview generation failed")
     if preview_segments:
         select_expr = "+".join(f"between(t,{segment['source_start']:.6f},{segment['source_end']:.6f})" for segment in preview_segments)
+        for segment in preview_segments:
+            operation_preview = segment["operation_preview"]
+            removed_output = paths.root / operation_preview["removed_ref"]
+            removed_output.parent.mkdir(parents=True, exist_ok=True)
+            segment_expr = f"between(t,{segment['source_start']:.6f},{segment['source_end']:.6f})"
+            result = run_command([
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-i",
+                str(input_path),
+                "-af",
+                f"aselect='{segment_expr}',asetpts=N/SR/TB",
+                "-vn",
+                "-acodec",
+                "libmp3lame",
+                str(removed_output),
+            ])
+            if result.returncode != 0:
+                raise MediaToolError(result.stderr.strip() or f"operation removed preview generation failed for {segment['operation_id']}")
         result = run_command([
             "ffmpeg",
             "-y",
