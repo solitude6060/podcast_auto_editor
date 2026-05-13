@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import config_to_dict, load_config
+from .explain import explain_operation, format_explanation_markdown
 from .fixtures import make_demo_fixtures
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .transcript import TranscriptValidationError, load_transcript_segments
@@ -79,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_review_list.add_argument("timeline")
     p_review_list.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
+    p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
+    p_explain.add_argument("timeline")
+    p_explain.add_argument("--operation-id", required=True)
+    p_explain.add_argument("--format", choices=("json", "markdown"), default="markdown")
+
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
 
@@ -105,6 +111,7 @@ def _build_run_report(run_dir: str | Path) -> dict:
     warnings = []
     for key in ("cue_errors", "chapter_errors"):
         warnings.extend(derived.get(key, []) or [])
+    operations = accepted.get("operations", []) if isinstance(accepted.get("operations"), list) else []
     return {
         "run_dir": str(root),
         "operation_counts": {
@@ -112,10 +119,25 @@ def _build_run_report(run_dir: str | Path) -> dict:
             "accepted": diff.get("accepted_count", 0),
             "rejected": diff.get("rejected_count", 0),
         },
+        "operation_groups": _group_operations_for_report(operations),
         "total_removed_duration": diff.get("total_removed_duration", 0.0),
         "quality_gate": quality,
         "derived_assets": {key: value for key, value in derived.items() if key not in {"cue_errors", "chapter_errors"}},
         "warnings": warnings,
+    }
+
+
+def _count_by(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _group_operations_for_report(operations: list[dict]) -> dict:
+    return {
+        "by_risk": _count_by([str(op.get("risk") or "unknown") for op in operations]),
+        "by_detector": _count_by([str(op.get("provenance", {}).get("detector") or "unknown") for op in operations]),
     }
 
 
@@ -133,13 +155,26 @@ def _format_run_report_markdown(report: dict) -> str:
         f"- Rejected edits: {counts['rejected']}",
         f"- Total removed duration: {float(report['total_removed_duration']):.3f}s",
         "",
+        "## Operation groups",
+        "",
+    ]
+    groups = report.get("operation_groups") or {}
+    for label, values in (("Risk", groups.get("by_risk") or {}), ("Detector", groups.get("by_detector") or {})):
+        lines.append(f"### {label}")
+        lines.append("")
+        if values:
+            lines.extend(f"- {key}: {value}" for key, value in values.items())
+        else:
+            lines.append("- none")
+        lines.append("")
+    lines.extend([
         "## Quality",
         "",
         f"- Quality gate: {report['quality_gate'].get('passed') if isinstance(report.get('quality_gate'), dict) else 'not measured'}",
         "",
         "## Warnings",
         "",
-    ]
+    ])
     warnings = report.get("warnings") or []
     lines.extend(f"- {warning}" for warning in warnings) if warnings else lines.append("- none")
     return "\n".join(lines) + "\n"
@@ -343,6 +378,17 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(review, indent=2, ensure_ascii=False))
         else:
             print(_format_review_list_markdown(review), end="")
+        return 0
+    if args.command == "explain":
+        try:
+            explanation = explain_operation(read_json(args.timeline), args.operation_id)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            print(json.dumps(explanation, indent=2, ensure_ascii=False))
+        else:
+            print(format_explanation_markdown(explanation), end="")
         return 0
     if args.command == "validate-transcript":
         try:

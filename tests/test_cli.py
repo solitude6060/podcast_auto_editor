@@ -207,7 +207,23 @@ def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
     root = tmp_path / "runs" / "ep1"
     (root / "diff").mkdir(parents=True)
     (root / "exports").mkdir()
-    (root / "timeline.accepted.v1.json").write_text(json.dumps({"export_metadata": {"derived_assets": {"cue_errors": ["late cue"]}}}))
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({
+        "operations": [{
+            "operation_id": "speech1",
+            "type": "speech_cut",
+            "source_range": {"start": 0.5, "end": 0.75},
+            "output_range": None,
+            "affected_tracks": ["audio:0"],
+            "state": "proposed",
+            "risk": "medium",
+            "confidence": 0.81,
+            "provenance": {"detector": "transcript.speech_cleanup_heuristic"},
+            "preview_ref": "preview/speech1.mp3",
+            "diff_ref": None,
+            "recovery_ref": None,
+        }],
+        "export_metadata": {"derived_assets": {"cue_errors": ["late cue"]}},
+    }))
     (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 2, "accepted_count": 1, "rejected_count": 1, "total_removed_duration": 1.5}))
     (root / "exports" / "transcript.json").write_text("{}")
 
@@ -215,11 +231,15 @@ def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["operation_counts"]["accepted"] == 1
     assert payload["warnings"] == ["late cue"]
+    assert payload["operation_groups"]["by_risk"] == {"medium": 1}
+    assert payload["operation_groups"]["by_detector"] == {"transcript.speech_cleanup_heuristic": 1}
 
     assert main(["report", str(root), "--format", "markdown"]) == 0
     out = capsys.readouterr().out
     assert "# Podcast Auto Editor Report" in out
     assert "Accepted edits: 1" in out
+    assert "medium: 1" in out
+    assert "transcript.speech_cleanup_heuristic: 1" in out
 
 
 def test_review_list_cli_outputs_operation_preview_table(tmp_path, capsys):
@@ -289,3 +309,39 @@ def test_review_list_cli_outputs_machine_readable_rows(tmp_path, capsys):
             "removed_ref": None,
         }],
     }
+
+
+def test_explain_cli_outputs_json_for_operation(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "medium",
+        "confidence": 0.81,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic", "reason": "filler_phrase", "evidence_text": "um"},
+        "preview_ref": "preview/speech1.mp3",
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main(["explain", str(src), "--operation-id", "speech1", "--format", "json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation_id"] == "speech1"
+    assert payload["detector"] == "transcript.speech_cleanup_heuristic"
+    assert payload["required_review"] == "manual_review_required"
+
+
+def test_explain_cli_reports_missing_operation(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main(["explain", str(src), "--operation-id", "missing"]) == 1
+    assert "operation missing was not found" in capsys.readouterr().err
