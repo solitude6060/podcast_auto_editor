@@ -201,7 +201,7 @@ def render_audio(input_path: str | Path, output_path: str | Path, kept: list[dic
     select_expr = "+".join(f"between(t,{seg['source_start']:.6f},{seg['source_end']:.6f})" for seg in kept)
     target = config.quality.mono_loudness_lufs if channels == 1 else config.quality.stereo_loudness_lufs
     filters = f"aselect='{select_expr}',asetpts=N/SR/TB,loudnorm=I={target}:TP={config.quality.true_peak_ceiling_db}:LRA=11"
-    command = ["ffmpeg", "-y", "-hide_banner", "-i", str(input_path), "-af", filters, str(output_path)]
+    command = ["ffmpeg", "-y", "-hide_banner", "-i", str(input_path), "-af", filters, "-ac", str(channels), str(output_path)]
     result = run_command(command)
     if result.returncode != 0:
         raise MediaToolError(result.stderr.strip() or "ffmpeg audio render failed")

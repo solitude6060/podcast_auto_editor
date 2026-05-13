@@ -9,6 +9,7 @@ from typing import Any
 
 from .artifacts import RunPaths, ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import AppConfig, config_to_dict
+from .exports import default_export_profiles, export_output_path
 from .media import MediaToolError, detect_silence, measure_audio_quality, measure_av_sync, probe_media, render_audio, render_video, validate_source_av_sync
 from .quality import evaluate_quality
 from .retake import detect_retake_candidates, detect_speech_cleanup_candidates, may_auto_accept_retake
@@ -335,13 +336,11 @@ def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, A
 def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], config: AppConfig) -> dict[str, Any]:
     duration = float(timeline.get("media_manifest", {}).get("duration", 0.0))
     kept = kept_segments(duration, accepted_cut_ranges(timeline))
-    channels = 2
+    source_channels = 2
     for track in timeline.get("tracks", []):
         if track.get("type") == "audio":
-            channels = int(track.get("channels", channels))
+            source_channels = int(track.get("channels", source_channels))
             break
-    render_audio(input_path, paths.edited_wav, kept, config, channels=channels)
-    metrics = measure_audio_quality(paths.edited_wav)
     av_sync_report = None
     if any(track.get("type") == "video" for track in timeline.get("tracks", [])):
         source_sync_report = validate_source_av_sync(timeline.get("tracks", []), config.quality)
@@ -351,17 +350,34 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
             raise MediaToolError(f"source av sync validation failed: {reason}")
         render_video(input_path, paths.edited_mp4, kept)
         av_sync_report = measure_av_sync(paths.edited_mp4)
-    gate_report = evaluate_quality(metrics, channels, config.quality)
-    if av_sync_report is not None:
-        gate_report["checks"].append({"name": "av_sync", "passed": av_sync_report["passed"], "target": av_sync_report["tolerance_s"], "actual": av_sync_report["drift_s"]})
-        gate_report["passed"] = gate_report["passed"] and av_sync_report["passed"]
-    timeline.setdefault("export_metadata", {})["quality_gate_report"] = gate_report
+
+    export_profiles = []
+    for profile in default_export_profiles():
+        output_path = export_output_path(paths, profile)
+        profile_channels = profile.channels or source_channels
+        render_audio(input_path, output_path, kept, config, channels=profile_channels)
+        metrics = measure_audio_quality(output_path)
+        gate_report = evaluate_quality(metrics, profile_channels, config.quality)
+        if profile.compatibility_default and av_sync_report is not None:
+            gate_report["checks"].append({"name": "av_sync", "passed": av_sync_report["passed"], "target": av_sync_report["tolerance_s"], "actual": av_sync_report["drift_s"]})
+            gate_report["passed"] = gate_report["passed"] and av_sync_report["passed"]
+        profile_record = {
+            "name": profile.name,
+            "container": profile.container,
+            "channels": profile_channels,
+            "path": str(output_path),
+            "quality_gate_report": gate_report,
+        }
+        export_profiles.append(profile_record)
+        if not gate_report["passed"]:
+            failed = ", ".join(check["name"] for check in gate_report["checks"] if not check["passed"])
+            raise MediaToolError(f"quality gate failed for {profile.name}: {failed}")
+
+    timeline.setdefault("export_metadata", {})["export_profiles"] = export_profiles
+    timeline["export_metadata"]["quality_gate_report"] = export_profiles[0]["quality_gate_report"]
     timeline["export_metadata"]["edited_audio"] = str(paths.edited_wav)
     if paths.edited_mp4.exists():
         timeline["export_metadata"]["edited_video"] = str(paths.edited_mp4)
-    if not gate_report["passed"]:
-        failed = ", ".join(check["name"] for check in gate_report["checks"] if not check["passed"])
-        raise MediaToolError(f"quality gate failed: {failed}")
     return timeline
 
 
