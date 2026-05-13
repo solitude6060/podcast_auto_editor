@@ -6,7 +6,7 @@ import sys
 from .artifacts import run_paths, write_diff_artifacts, write_recovery_artifacts
 from .config import load_config
 from .fixtures import make_demo_fixtures
-from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, write_preview
+from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_review_accept.add_argument("--reviewer", required=True)
     p_review_accept.add_argument("--note", default="")
     p_review_accept.add_argument("--out", required=True)
+
+    p_undo = sub.add_parser("undo", help="Restore accepted timeline operations back to proposed")
+    p_undo.add_argument("timeline")
+    p_undo.add_argument("--operation-id", action="append")
+    p_undo.add_argument("--all", action="store_true", help="Undo all currently accepted operations")
+    p_undo.add_argument("--reason", default="")
+    p_undo.add_argument("--out", required=True)
 
     p_render = sub.add_parser("render")
     p_render.add_argument("input")
@@ -109,6 +116,15 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         write_json(args.out, reviewed)
+        print(args.out)
+        return 0
+    if args.command == "undo":
+        try:
+            restored = undo_accepted_operations(read_json(args.timeline), args.operation_id, undo_all=args.all, reason=args.reason)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        write_json(args.out, restored)
         print(args.out)
         return 0
     if args.command == "render":

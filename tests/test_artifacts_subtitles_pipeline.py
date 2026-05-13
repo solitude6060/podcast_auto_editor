@@ -7,7 +7,7 @@ import pytest
 from podcast_auto_editor.artifacts import run_paths, write_diff_artifacts
 from podcast_auto_editor.config import load_config
 from podcast_auto_editor.media import MediaToolError
-from podcast_auto_editor.pipeline import accept_all, remap_cues_to_output, retake_operation_is_render_safe, transcribe_and_write, write_preview
+from podcast_auto_editor.pipeline import accept_all, remap_cues_to_output, retake_operation_is_render_safe, transcribe_and_write, undo_accepted_operations, write_preview
 from podcast_auto_editor.subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from podcast_auto_editor.timeline import create_noop_timeline
 
@@ -173,3 +173,32 @@ def test_retake_render_safety_accepts_manual_review_provenance_only_when_complet
 
     op["provenance"]["manual_review"]["reviewer"] = ""
     assert retake_operation_is_render_safe(op) is False
+
+
+def test_undo_accepted_operations_restores_selected_cut_and_rebuilds_recovery():
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 6.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"] = [
+        {"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "accepted", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": "preview.mp3", "diff_ref": "diff.json", "recovery_ref": "recovery.json"},
+        {"operation_id": "cut2", "type": "silence_cut", "source_range": {"start": 4.0, "end": 5.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "accepted", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": "preview.mp3", "diff_ref": "diff.json", "recovery_ref": "recovery.json"},
+    ]
+    timeline["recovery"] = accept_all(timeline)["recovery"]
+
+    restored = undo_accepted_operations(timeline, ["cut1"], undo_all=False, reason="keep pause")
+
+    assert [op["state"] for op in restored["operations"]] == ["proposed", "accepted"]
+    assert restored["operations"][0]["provenance"]["undo"]["reason"] == "keep pause"
+    assert restored["recovery"]["removed_segments"] == [{"operation_id": "cut2", "source_start": 4.0, "source_end": 5.0, "duration": 1.0}]
+
+
+def test_undo_all_restores_accepted_operations_but_preserves_rejected():
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 6.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"] = [
+        {"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "accepted", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": "preview.mp3", "diff_ref": "diff.json", "recovery_ref": "recovery.json"},
+        {"operation_id": "cut2", "type": "silence_cut", "source_range": {"start": 4.0, "end": 5.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "rejected", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": None, "diff_ref": None, "recovery_ref": None},
+    ]
+    timeline["recovery"] = accept_all(timeline)["recovery"]
+
+    restored = undo_accepted_operations(timeline, [], undo_all=True)
+
+    assert [op["state"] for op in restored["operations"]] == ["proposed", "rejected"]
+    assert restored["recovery"]["removed_segments"] == []

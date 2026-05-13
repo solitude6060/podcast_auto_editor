@@ -89,6 +89,41 @@ def test_review_accept_cli_requires_explicit_operation_ids(tmp_path, capsys):
     assert "requires at least one --operation-id" in capsys.readouterr().err
 
 
+def test_undo_cli_requires_explicit_scope(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    src = tmp_path / "timeline.json"
+    out = tmp_path / "restored.json"
+    write_json(src, timeline)
+
+    assert main(["undo", str(src), "--out", str(out)]) == 1
+    assert "undo requires --all or at least one --operation-id" in capsys.readouterr().err
+
+
+def test_undo_cli_restores_selected_accepted_operation(tmp_path):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 3.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "accepted", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": "preview.mp3", "diff_ref": "diff.json", "recovery_ref": "recovery.json"})
+    src = tmp_path / "timeline.json"
+    out = tmp_path / "restored.json"
+    write_json(src, timeline)
+
+    assert main(["undo", str(src), "--operation-id", "cut1", "--reason", "restore intro pause", "--out", str(out)]) == 0
+    restored = json.loads(out.read_text())
+    assert restored["operations"][0]["state"] == "proposed"
+    assert restored["operations"][0]["provenance"]["undo"]["reason"] == "restore intro pause"
+    assert restored["recovery"]["removed_segments"] == []
+
+
+def test_undo_cli_rejects_selected_non_accepted_operation(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 3.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "cut1", "type": "silence_cut", "source_range": {"start": 1.0, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": None, "diff_ref": None, "recovery_ref": None})
+    src = tmp_path / "timeline.json"
+    out = tmp_path / "restored.json"
+    write_json(src, timeline)
+
+    assert main(["undo", str(src), "--operation-id", "cut1", "--out", str(out)]) == 1
+    assert "operation cut1 is not accepted" in capsys.readouterr().err
+
+
 def test_load_transcript_segments_accepts_legacy_lists(tmp_path):
     transcript_json = tmp_path / "transcript.json"
     transcript_json.write_text(json.dumps([{"start": 0.0, "end": 0.5, "text": "hello"}]))

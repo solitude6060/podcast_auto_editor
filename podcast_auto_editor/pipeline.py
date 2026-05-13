@@ -164,6 +164,43 @@ def retake_operation_is_render_safe(operation: dict[str, Any]) -> bool:
     )
 
 
+def undo_accepted_operations(
+    timeline: dict[str, Any],
+    operation_ids: list[str] | None,
+    undo_all: bool = False,
+    reason: str = "",
+    undone_at: str | None = None,
+) -> dict[str, Any]:
+    """Restore accepted operations back to proposed and rebuild recovery."""
+    ids = set(operation_ids or [])
+    if undo_all and ids:
+        raise ValueError("undo accepts either --all or --operation-id, not both")
+    if not undo_all and not ids:
+        raise ValueError("undo requires --all or at least one --operation-id")
+    updated = deepcopy(timeline)
+    operations = updated.get("operations", [])
+    known_ids = {op.get("operation_id") for op in operations}
+    missing = ids.difference(known_ids)
+    if missing:
+        raise ValueError(f"unknown operation id(s): {', '.join(sorted(missing))}")
+    targets = [op for op in operations if (undo_all and op.get("state") == "accepted") or op.get("operation_id") in ids]
+    for op in targets:
+        operation_id = op.get("operation_id")
+        if op.get("state") != "accepted":
+            raise ValueError(f"operation {operation_id} is not accepted")
+    undone_at = undone_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    for op in targets:
+        op["state"] = "proposed"
+        op.setdefault("provenance", {})["undo"] = {
+            "previous_state": "accepted",
+            "restored_state": "proposed",
+            "reason": reason,
+            "undone_at": undone_at,
+        }
+    updated["recovery"] = build_recovery(updated)
+    return updated
+
+
 def _preview_segment_metadata(timeline: dict[str, Any]) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     for op in timeline.get("operations", []):

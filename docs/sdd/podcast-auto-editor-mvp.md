@@ -23,6 +23,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Explicit human retake acceptance is supported only through `review-accept`, which requires selected operation IDs and records reviewer/note/timestamp provenance.
 - CLI `render` refuses proposed timelines unless `--accept-safe-defaults` is used for deterministic silence only.
 - CLI `render` refuses accepted `retake_cut` operations unless they carry either successful auto-accept provenance or explicit manual-review provenance.
+- CLI `undo` restores accepted operations to `proposed` only with explicit operation IDs or `--all`, records undo provenance, and rebuilds recovery maps.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -37,6 +38,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Next increment added red/green tests for explicit retake review acceptance, no-bulk review acceptance, and render refusal for plain accepted retakes without review provenance.
 - Next increment added red/green tests for transcript cue remapping through recovery maps, including shifted, dropped, and split cues after accepted cuts.
 - Team follow-up added tests for transcript import validation, enriched preview/diff metadata, and deterministic ffmpeg demo fixture generation.
+- RALPLAN follow-up added tests for explicit undo scope, selected undo, all-accepted undo, non-accepted selection rejection, and recovery rebuilds.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

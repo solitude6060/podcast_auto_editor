@@ -33,6 +33,17 @@ python -m podcast_auto_editor review-accept runs/episode/timeline.proposed.v1.js
 
 Plain `accept` is still insufficient for rendering accepted `retake_cut` operations; render requires either successful auto-accept provenance or explicit manual-review provenance.
 
+To restore accepted edits before re-rendering, use the explicit undo path:
+
+```bash
+python -m podcast_auto_editor undo runs/episode/timeline.accepted.v1.json \
+  --operation-id silence_abc123 \
+  --reason "Keep the dramatic pause" \
+  --out runs/episode/timeline.restored.v1.json
+```
+
+Use `--all` only when intentionally restoring every currently accepted operation.
+
 Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When accepted cuts remove source ranges, supplied transcript cues are remapped through the timeline recovery map before assets are written.
 
 ## Transcript import
