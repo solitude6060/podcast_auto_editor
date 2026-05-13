@@ -54,3 +54,5 @@ Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When acc
 - a `{"schema_version":"transcript.v1","segments":[...]}` wrapper.
 
 Each cue must include numeric `start` and `end` fields plus string `text`. Invalid shapes fail fast before the pipeline starts, so transcript import errors are reported clearly instead of surfacing later as media or retake errors.
+
+Timeline and config validation also fail fast: operation confidence must be 0–1, affected track IDs must exist, cut ranges must stay within media duration, accepted cuts may not overlap, and quality/retake settings must stay within supported bounds.

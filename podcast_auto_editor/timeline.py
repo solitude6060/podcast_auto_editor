@@ -71,6 +71,10 @@ def validate_timeline(timeline: dict[str, Any]) -> list[str]:
         errors.append("operations must be a list")
         return errors
     seen_ids: set[str] = set()
+    track_ids = {track.get("track_id") for track in timeline.get("tracks", []) if isinstance(track, dict)}
+    duration = timeline.get("media_manifest", {}).get("duration")
+    media_duration = float(duration) if duration is not None else None
+    accepted_cuts: list[tuple[float, float, str]] = []
     for idx, op in enumerate(timeline.get("operations", [])):
         for key in ("operation_id", "type", "source_range", "output_range", "affected_tracks", "state", "risk", "confidence", "provenance", "preview_ref", "diff_ref", "recovery_ref"):
             if key not in op:
@@ -83,13 +87,40 @@ def validate_timeline(timeline: dict[str, Any]) -> list[str]:
             errors.append(f"operation[{idx}] invalid state {op.get('state')!r}")
         if op.get("risk") not in VALID_RISKS:
             errors.append(f"operation[{idx}] invalid risk {op.get('risk')!r}")
+        confidence = op.get("confidence")
+        if isinstance(confidence, bool) or confidence is None:
+            errors.append(f"operation[{idx}] confidence must be between 0 and 1")
+        else:
+            try:
+                confidence_value = float(confidence)
+            except (TypeError, ValueError):
+                errors.append(f"operation[{idx}] confidence must be between 0 and 1")
+            else:
+                if not 0 <= confidence_value <= 1:
+                    errors.append(f"operation[{idx}] confidence must be between 0 and 1")
+        for track_id in op.get("affected_tracks", []) or []:
+            if track_id not in track_ids:
+                errors.append(f"operation[{idx}] unknown affected track {track_id!r}")
         source_range = op.get("source_range", {})
-        if source_range.get("end", 0) <= source_range.get("start", 0):
+        start = float(source_range.get("start", 0))
+        end = float(source_range.get("end", 0))
+        if end <= start:
             errors.append(f"operation[{idx}] source_range end must be after start")
+        if start < 0:
+            errors.append(f"operation[{idx}] source_range start must be >= 0")
+        if media_duration is not None and end > media_duration:
+            errors.append(f"operation[{idx}] source_range end exceeds media duration")
         if op.get("state") == "accepted":
             for ref in ("preview_ref", "diff_ref", "recovery_ref"):
                 if not op.get(ref):
                     errors.append(f"operation[{idx}] accepted operation missing {ref}")
+            if op.get("type") in {"silence_cut", "retake_cut", "video_cut"}:
+                accepted_cuts.append((start, end, str(operation_id)))
+    for previous, current in zip(sorted(accepted_cuts), sorted(accepted_cuts)[1:]):
+        prev_start, prev_end, prev_id = previous
+        cur_start, cur_end, cur_id = current
+        if cur_start < prev_end:
+            errors.append(f"accepted cut overlaps: {prev_id} ({prev_start}-{prev_end}) and {cur_id} ({cur_start}-{cur_end})")
     return errors
 
 

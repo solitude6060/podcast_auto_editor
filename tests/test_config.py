@@ -2,7 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from podcast_auto_editor.config import load_config
+import pytest
+
+from podcast_auto_editor.config import ConfigValidationError, load_config, validate_config
 
 
 def test_default_config_matches_quality_gate_contract():
@@ -28,3 +30,27 @@ def test_config_overrides_merge_with_defaults():
     assert cfg.quality.min_silence_duration_s == 2.0
     assert cfg.quality.stereo_loudness_lufs == -16.0
     assert cfg.retake.auto_low_risk_speech is True
+
+
+def test_config_validation_rejects_invalid_quality_and_format_values():
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_config(load_config_dict({"quality": {"min_silence_duration_s": 0, "speech_padding_s": -0.1}, "output_audio_ext": "flac"}))
+
+    message = str(exc.value)
+    assert "min_silence_duration_s must be > 0" in message
+    assert "speech_padding_s must be >= 0" in message
+    assert "output_audio_ext must be one of" in message
+
+
+def test_load_config_fails_fast_on_invalid_values(tmp_path):
+    path = tmp_path / "bad-config.json"
+    path.write_text(json.dumps({"retake": {"auto_accept_confidence": 1.5}}))
+
+    with pytest.raises(ConfigValidationError, match="auto_accept_confidence must be between 0 and 1"):
+        load_config(path)
+
+
+def load_config_dict(data):
+    path = Path(tempfile.mkdtemp()) / "config.json"
+    path.write_text(json.dumps(data))
+    return load_config(path)

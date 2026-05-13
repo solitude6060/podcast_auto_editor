@@ -42,6 +42,10 @@ class AppConfig:
     publish_audio_ext: str = "mp3"
 
 
+class ConfigValidationError(ValueError):
+    """Raised when configuration values are unsafe or unsupported."""
+
+
 def _merge_dataclass(default_obj: Any, overrides: dict[str, Any]) -> Any:
     values = asdict(default_obj)
     for key, value in overrides.items():
@@ -54,19 +58,50 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     """Load JSON config, merging partial overrides onto safe MVP defaults."""
     default = AppConfig()
     if path is None:
+        validate_config(default)
         return default
     data = json.loads(Path(path).read_text())
     quality = _merge_dataclass(default.quality, data.get("quality", {}))
     retake = _merge_dataclass(default.retake, data.get("retake", {}))
     output_audio_ext = data.get("output_audio_ext", default.output_audio_ext)
     publish_audio_ext = data.get("publish_audio_ext", default.publish_audio_ext)
-    return AppConfig(
+    config = AppConfig(
         quality=quality,
         retake=retake,
         output_audio_ext=output_audio_ext,
         publish_audio_ext=publish_audio_ext,
     )
+    validate_config(config)
+    return config
 
 
 def config_to_dict(config: AppConfig) -> dict[str, Any]:
     return asdict(config)
+
+
+def validate_config(config: AppConfig) -> None:
+    errors: list[str] = []
+    q = config.quality
+    r = config.retake
+    if q.loudness_tolerance_lu <= 0:
+        errors.append("loudness_tolerance_lu must be > 0")
+    if q.min_silence_duration_s <= 0:
+        errors.append("min_silence_duration_s must be > 0")
+    if q.speech_padding_s < 0:
+        errors.append("speech_padding_s must be >= 0")
+    if q.max_clipped_samples < 0:
+        errors.append("max_clipped_samples must be >= 0")
+    if q.av_sync_tolerance_s <= 0:
+        errors.append("av_sync_tolerance_s must be > 0")
+    if q.subtitle_tolerance_s < 0:
+        errors.append("subtitle_tolerance_s must be >= 0")
+    if not 0 <= r.auto_accept_confidence <= 1:
+        errors.append("auto_accept_confidence must be between 0 and 1")
+    if r.duplicate_window_s <= 0:
+        errors.append("duplicate_window_s must be > 0")
+    if config.output_audio_ext not in {"wav"}:
+        errors.append("output_audio_ext must be one of: wav")
+    if config.publish_audio_ext not in {"mp3"}:
+        errors.append("publish_audio_ext must be one of: mp3")
+    if errors:
+        raise ConfigValidationError("; ".join(errors))
