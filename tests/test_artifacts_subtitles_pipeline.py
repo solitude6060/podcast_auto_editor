@@ -110,6 +110,37 @@ def test_preview_metadata_records_removed_segment_preview_manifest(tmp_path):
     assert preview["segment_count"] == 1
     assert preview["total_duration"] == 1.5
     assert preview["segments"][0]["operation_id"] == "cut1"
+    operation_preview = preview["segments"][0]["operation_preview"]
+    assert operation_preview["before_after_ref"].endswith("preview/operations/cut1/before-after.mp3")
+    assert operation_preview["removed_ref"].endswith("preview/operations/cut1/removed.mp3")
+
+
+def test_write_preview_attaches_per_operation_preview_refs_before_media_failure(tmp_path):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 5.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append(
+        {
+            "operation_id": "cut1",
+            "type": "silence_cut",
+            "source_range": {"start": 1.0, "end": 2.5},
+            "output_range": None,
+            "affected_tracks": ["audio:0"],
+            "state": "proposed",
+            "risk": "deterministic",
+            "confidence": 1.0,
+            "provenance": {},
+            "preview_ref": None,
+            "diff_ref": None,
+            "recovery_ref": None,
+        }
+    )
+    paths = run_paths(tmp_path, "ep1")
+
+    with pytest.raises(MediaToolError):
+        write_preview(paths, tmp_path / "missing.wav", timeline)
+
+    assert timeline["operations"][0]["preview_ref"] == "preview/operations/cut1/before-after.mp3"
+    metadata = json.loads(paths.waveform.read_text())
+    assert metadata["removed_segments_preview"]["segments"][0]["operation_preview"]["removed_ref"] == "preview/operations/cut1/removed.mp3"
 
 
 def test_removed_segments_preview_uses_operation_ranges(monkeypatch, tmp_path):

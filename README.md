@@ -81,3 +81,5 @@ UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q po
 ```
 
 The smoke script runs the uv test suite, compileall, CLI help, and optional FFmpeg demo fixture generation when FFmpeg is installed.
+
+Per-operation preview metadata is recorded under `preview/operations/<operation_id>/` so review tools can link each proposed edit to its own before/after and removed-audio refs.

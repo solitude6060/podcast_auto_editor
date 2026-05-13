@@ -208,11 +208,22 @@ def _preview_segment_metadata(timeline: dict[str, Any]) -> list[dict[str, Any]]:
         source_range = op.get("source_range") or {}
         if "start" not in source_range or "end" not in source_range:
             continue
+        operation_id = str(op.get("operation_id"))
+        before_after_ref = f"preview/operations/{operation_id}/before-after.mp3"
+        removed_ref = f"preview/operations/{operation_id}/removed.mp3"
+        op["preview_ref"] = op.get("preview_ref") or before_after_ref
+        op.setdefault("provenance", {}).setdefault(
+            "operation_preview",
+            {
+                "before_after_ref": before_after_ref,
+                "removed_ref": removed_ref,
+            },
+        )
         start = float(source_range["start"])
         end = float(source_range["end"])
         segments.append(
             {
-                "operation_id": op.get("operation_id"),
+                "operation_id": operation_id,
                 "operation_type": op.get("type"),
                 "state": op.get("state"),
                 "source_start": start,
@@ -220,6 +231,11 @@ def _preview_segment_metadata(timeline: dict[str, Any]) -> list[dict[str, Any]]:
                 "duration": max(0.0, end - start),
                 "risk": op.get("risk"),
                 "confidence": op.get("confidence"),
+                "operation_preview": {
+                    "before_after_ref": before_after_ref,
+                    "removed_ref": removed_ref,
+                    "context_padding_s": 2.0,
+                },
             }
         )
     return segments

@@ -32,6 +32,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Speech cleanup heuristics may propose filler/false-start `speech_cut` operations, but they remain proposed and require manual review before render.
 - MP4 render preflights source audio/video duration and drift before video export, and output sync reports include measured stream durations.
 - `scripts/smoke.sh` provides a fresh-clone local verification path over uv tests, compileall, CLI help, and optional FFmpeg fixtures.
+- Advanced preview metadata includes per-operation before/after and removed-audio review refs under `preview/operations/<operation_id>/`.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -54,6 +55,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Ralph Phase 5 added proposed-only speech cleanup tests and manual-review render safety for `speech_cut`.
 - Follow-up Phase 6 added source A/V sync preflight and measured duration diagnostics.
 - Follow-up Phase 7 added smoke-test script coverage for local operational verification.
+- Advanced Phase A2 added per-operation preview metadata/ref attachment tests.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
