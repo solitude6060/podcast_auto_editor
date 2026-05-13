@@ -95,3 +95,14 @@ Per-operation before/after clips are generated with context padding around each 
 GitHub Actions runs the same uv-managed checks used locally: pytest, compileall, and a CLI help smoke. Keep `./scripts/smoke.sh` as the local pre-push command because it also exercises optional FFmpeg demo fixture generation when FFmpeg is installed.
 
 Release preparation should update `CHANGELOG.md` and use `docs/release-notes-template.md` for verification notes, compatibility notes, and local-only safety checks. `.omx/`, generated run artifacts, virtualenvs, and caches must remain untracked.
+
+### Local review UI
+
+After generating a run directory, use the scriptable review helper or local-only review server:
+
+```bash
+uv run python -m podcast_auto_editor review next runs/episode/review-session.json   --timeline runs/episode/timeline.proposed.v1.json
+uv run python -m podcast_auto_editor review serve runs/episode
+```
+
+`review serve` binds to `127.0.0.1` by default and writes decisions to the same `review-session.json` used by the CLI.

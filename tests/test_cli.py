@@ -511,3 +511,36 @@ def test_html_report_cli_writes_static_file(tmp_path):
 
     assert out.exists()
     assert "<!doctype html>" in out.read_text()
+
+
+def test_review_next_cli_outputs_next_operation(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "speech1", "type": "speech_cut", "source_range": {"start": 0.5, "end": 0.75}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "medium", "confidence": 0.8, "provenance": {"detector": "transcript.speech_cleanup_heuristic"}, "preview_ref": "preview/speech1.mp3", "diff_ref": None, "recovery_ref": None})
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    session_path = tmp_path / "review-session.json"
+    write_json(timeline_path, timeline)
+    write_json(session_path, {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []})
+
+    assert main(["review", "next", str(session_path), "--timeline", str(timeline_path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "# Next Review Operation" in out
+    assert "speech1" in out
+    assert "review decide" in out
+
+
+def test_review_next_cli_outputs_json(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    session_path = tmp_path / "review-session.json"
+    write_json(timeline_path, timeline)
+    write_json(session_path, {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []})
+
+    assert main(["review", "next", str(session_path), "--timeline", str(timeline_path), "--format", "json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) is None
+
+
+def test_review_serve_cli_validates_localhost(tmp_path, capsys):
+    assert main(["review", "serve", str(tmp_path), "--host", "0.0.0.0"]) == 1
+    assert "localhost only" in capsys.readouterr().err
