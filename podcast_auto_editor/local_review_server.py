@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -54,28 +55,81 @@ def handle_api_decision(run_dir: str | Path, payload: dict[str, Any]) -> dict[st
     return load_review_context(root)
 
 
+def _escape(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
 def build_review_app_html(run_dir: str | Path) -> str:
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
   <meta charset=\"utf-8\">
   <title>Podcast Auto Editor Review</title>
-  <style>body {{ font-family: system-ui, sans-serif; margin: 2rem; }} button {{ margin-right: .5rem; }}</style>
+  <style>
+    body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 72rem; }}
+    button {{ margin-right: .5rem; }}
+    label {{ display: block; margin: .5rem 0; }}
+    input {{ min-width: 18rem; }}
+    #next {{ border: 1px solid #ddd; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }}
+    pre {{ background: #f6f8fa; overflow: auto; padding: 1rem; }}
+  </style>
 </head>
 <body>
   <h1>Podcast Auto Editor Review</h1>
-  <p>Run directory: <code>{Path(run_dir)}</code></p>
+  <p>Run directory: <code>{_escape(Path(run_dir))}</code></p>
   <p>State file: <code>review-session.json</code></p>
+  <section id=\"next\">Loading next operation…</section>
+  <label>Reviewer <input id=\"reviewer\" value=\"local-reviewer\" autocomplete=\"name\"></label>
+  <label>Note <input id=\"note\" placeholder=\"Optional decision note\"></label>
+  <button id=\"accept\" type=\"button\" onclick=\"decideCurrent('accept')\">Accept</button>
+  <button id=\"reject\" type=\"button\" onclick=\"decideCurrent('reject')\">Reject</button>
+  <button id=\"undo\" type=\"button\" onclick=\"decideCurrent('undo')\">Undo</button>
   <pre id=\"status\">Loading…</pre>
   <script>
+    let currentOperation = null;
+
+    function renderNext(status) {{
+      currentOperation = status.next;
+      const target = document.getElementById('next');
+      if (!currentOperation) {{
+        target.textContent = 'No pending operations. Review is complete.';
+        return;
+      }}
+      const summary = [
+        `Operation: ${{currentOperation.operation_id}}`,
+        `Type: ${{currentOperation.type}}`,
+        `Risk: ${{currentOperation.risk || 'unknown'}}`,
+        `Confidence: ${{currentOperation.confidence ?? 'unknown'}}`,
+        `Reason: ${{currentOperation.reason || 'No reason provided'}}`,
+        `Preview: ${{currentOperation.preview_ref || 'none'}}`
+      ].join('\\n');
+      target.textContent = summary;
+    }}
+
     async function refresh() {{
       const status = await fetch('/api/status').then(r => r.json());
       document.getElementById('status').textContent = JSON.stringify(status, null, 2);
+      renderNext(status);
     }}
-    async function decide(operation_id, decision, reviewer) {{
-      await fetch('/api/decision', {{method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{operation_id, decision, reviewer}})}});
+
+    async function decide(operation_id, decision, reviewer, note) {{
+      await fetch('/api/decision', {{method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{operation_id, decision, reviewer, note}})}});
       await refresh();
     }}
+
+    async function decideCurrent(decision) {{
+      if (!currentOperation) {{
+        return;
+      }}
+      await decide(
+        currentOperation.operation_id,
+        decision,
+        document.getElementById('reviewer').value,
+        document.getElementById('note').value
+      );
+      document.getElementById('note').value = '';
+    }}
+
     refresh();
   </script>
 </body>

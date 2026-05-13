@@ -15,3 +15,13 @@ Completed remaining planned interface roadmap items with a scriptable review hel
 - Red tests first: review-next and local server modules/commands were missing.
 - Targeted green: review-next, local server, and CLI tests → `11 passed`.
 - Full regression and compileall run before PR.
+
+## Review hardening
+- Escaped the displayed run directory in the local review page before rendering it as HTML.
+- Added visible reviewer/note fields and Accept/Reject/Undo buttons so the browser UI can write decisions without manual API calls.
+- Added regression coverage for HTML escaping and interactive decision controls.
+
+## Final verification
+- Targeted local UI/review helper suite: `12 passed`.
+- Full regression: `113 passed`.
+- Compileall: `uv run python -m compileall -q podcast_auto_editor tests` completed successfully.

@@ -43,7 +43,21 @@ def test_build_review_app_html_is_static_and_local(tmp_path):
 
     assert "Podcast Auto Editor Review" in html
     assert "fetch('/api/status')" in html
+    assert "/api/decision" in html
+    assert "decideCurrent('accept')" in html
+    assert "decideCurrent('reject')" in html
+    assert "decideCurrent('undo')" in html
+    assert "id=\"reviewer\"" in html
+    assert "id=\"note\"" in html
     assert "review-session.json" in html
+
+
+def test_build_review_app_html_escapes_run_dir():
+    html = build_review_app_html('/tmp/run-<script>alert("x")</script>')
+
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html
+    assert "&quot;x&quot;" in html
 
 
 def test_validate_review_host_defaults_to_localhost_only():
