@@ -65,6 +65,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Advanced Phase A5 added export profile matrix tests for archive WAV, podcast stereo MP3, podcast mono MP3, and per-profile quality gates.
 - Advanced Phase A5 added config and CLI export profile selection tests.
 - Advanced Phase A6 added replayable review session tests and CLI status/decide/rebuild coverage.
+- Advanced Phase A7 added static HTML report tests for escaped local operation/export artifact links.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

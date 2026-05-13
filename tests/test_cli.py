@@ -486,3 +486,28 @@ def test_review_rebuild_cli_replays_session_to_timeline(tmp_path):
     rebuilt = json.loads(out.read_text())
     assert rebuilt["operations"][0]["state"] == "accepted"
     assert rebuilt["operations"][0]["provenance"]["manual_review"]["decision"] == "accepted"
+
+
+def test_report_cli_outputs_html(tmp_path, capsys):
+    root = tmp_path / "runs" / "ep1"
+    (root / "diff").mkdir(parents=True)
+    (root / "exports").mkdir()
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({"operations": [], "export_metadata": {}}))
+    (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 0, "accepted_count": 0, "rejected_count": 0, "total_removed_duration": 0}))
+
+    assert main(["report", str(root), "--format", "html"]) == 0
+
+    out = capsys.readouterr().out
+    assert "<!doctype html>" in out
+    assert "Podcast Auto Editor Report" in out
+
+
+def test_html_report_cli_writes_static_file(tmp_path):
+    root = tmp_path / "runs" / "ep1"
+    root.mkdir(parents=True)
+    out = tmp_path / "report.html"
+
+    assert main(["html-report", str(root), "--out", str(out)]) == 0
+
+    assert out.exists()
+    assert "<!doctype html>" in out.read_text()

@@ -10,6 +10,7 @@ from .config import config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
+from .html_report import build_html_report, write_html_report
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .review_session import apply_decision, format_review_status_markdown, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
@@ -78,7 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_report = sub.add_parser("report", help="Summarize a run directory")
     p_report.add_argument("run_dir")
-    p_report.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_report.add_argument("--format", choices=("json", "markdown", "html"), default="markdown")
+
+    p_html_report = sub.add_parser("html-report", help="Write a static local HTML report for a run directory")
+    p_html_report.add_argument("run_dir")
+    p_html_report.add_argument("--out", required=True)
 
     p_review_list = sub.add_parser("review-list", help="List timeline operations with preview refs for producer review")
     p_review_list.add_argument("timeline")
@@ -400,11 +405,18 @@ def main(argv: list[str] | None = None) -> int:
         print(paths.root)
         return 0
     if args.command == "report":
+        if args.format == "html":
+            print(build_html_report(args.run_dir), end="")
+            return 0
         report = _build_run_report(args.run_dir)
         if args.format == "json":
             print(json.dumps(report, indent=2, ensure_ascii=False))
         else:
             print(_format_run_report_markdown(report), end="")
+        return 0
+    if args.command == "html-report":
+        write_html_report(args.run_dir, args.out)
+        print(args.out)
         return 0
     if args.command == "review-list":
         review = _build_review_list(args.timeline, read_json(args.timeline))
