@@ -220,3 +220,72 @@ def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "# Podcast Auto Editor Report" in out
     assert "Accepted edits: 1" in out
+
+
+def test_review_list_cli_outputs_operation_preview_table(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "cut1",
+        "type": "silence_cut",
+        "source_range": {"start": 1.0, "end": 2.5},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {
+            "operation_preview": {
+                "before_after_ref": "preview/operations/cut1/before-after.mp3",
+                "removed_ref": "preview/operations/cut1/removed.mp3",
+            }
+        },
+        "preview_ref": "preview/operations/cut1/before-after.mp3",
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main(["review-list", str(src)]) == 0
+
+    out = capsys.readouterr().out
+    assert "| Operation | Type | State | Risk | Confidence | Source | Preview | Removed |" in out
+    assert "| cut1 | silence_cut | proposed | deterministic | 1.000 | 1.000-2.500 | preview/operations/cut1/before-after.mp3 | preview/operations/cut1/removed.mp3 |" in out
+
+
+def test_review_list_cli_outputs_machine_readable_rows(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "source_range": {"start": 0.25, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "accepted",
+        "risk": "medium",
+        "confidence": 0.83,
+        "provenance": {},
+        "preview_ref": "preview/legacy.mp3",
+        "diff_ref": "diff/timeline-diff.json",
+        "recovery_ref": "recovery/recovery-map.json",
+    })
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main(["review-list", str(src), "--format", "json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "timeline": str(src),
+        "operation_count": 1,
+        "operations": [{
+            "operation_id": "speech1",
+            "type": "speech_cut",
+            "state": "accepted",
+            "risk": "medium",
+            "confidence": 0.83,
+            "source": {"start": 0.25, "end": 0.75},
+            "preview_ref": "preview/legacy.mp3",
+            "removed_ref": None,
+        }],
+    }

@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("run_dir")
     p_report.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
+    p_review_list = sub.add_parser("review-list", help="List timeline operations with preview refs for producer review")
+    p_review_list.add_argument("timeline")
+    p_review_list.add_argument("--format", choices=("json", "markdown"), default="markdown")
+
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
 
@@ -138,6 +142,83 @@ def _format_run_report_markdown(report: dict) -> str:
     ]
     warnings = report.get("warnings") or []
     lines.extend(f"- {warning}" for warning in warnings) if warnings else lines.append("- none")
+    return "\n".join(lines) + "\n"
+
+
+def _operation_preview_refs(op: dict) -> tuple[str | None, str | None]:
+    operation_preview = op.get("provenance", {}).get("operation_preview", {})
+    before_after_ref = operation_preview.get("before_after_ref") or op.get("preview_ref")
+    removed_ref = operation_preview.get("removed_ref")
+    return before_after_ref, removed_ref
+
+
+def _build_review_list(timeline_path: str | Path, timeline: dict) -> dict:
+    rows = []
+    for op in timeline.get("operations", []):
+        source = op.get("source_range") or {}
+        preview_ref, removed_ref = _operation_preview_refs(op)
+        rows.append({
+            "operation_id": op.get("operation_id"),
+            "type": op.get("type"),
+            "state": op.get("state"),
+            "risk": op.get("risk"),
+            "confidence": op.get("confidence"),
+            "source": {
+                "start": float(source["start"]) if "start" in source else None,
+                "end": float(source["end"]) if "end" in source else None,
+            },
+            "preview_ref": preview_ref,
+            "removed_ref": removed_ref,
+        })
+    return {
+        "timeline": str(timeline_path),
+        "operation_count": len(rows),
+        "operations": rows,
+    }
+
+
+def _format_source_range(source: dict) -> str:
+    start = source.get("start")
+    end = source.get("end")
+    if start is None or end is None:
+        return "-"
+    return f"{float(start):.3f}-{float(end):.3f}"
+
+
+def _format_confidence(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_review_list_markdown(review: dict) -> str:
+    lines = [
+        "# Review List",
+        "",
+        f"Timeline: {review['timeline']}",
+        f"Operations: {review['operation_count']}",
+        "",
+        "| Operation | Type | State | Risk | Confidence | Source | Preview | Removed |",
+        "| --- | --- | --- | --- | ---: | --- | --- | --- |",
+    ]
+    for op in review["operations"]:
+        lines.append(
+            " | ".join(
+                [
+                    f"| {op.get('operation_id') or '-'}",
+                    str(op.get("type") or "-"),
+                    str(op.get("state") or "-"),
+                    str(op.get("risk") or "-"),
+                    _format_confidence(op.get("confidence")),
+                    _format_source_range(op.get("source") or {}),
+                    str(op.get("preview_ref") or "-"),
+                    f"{op.get('removed_ref') or '-'} |",
+                ]
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -255,6 +336,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(report, indent=2, ensure_ascii=False))
         else:
             print(_format_run_report_markdown(report), end="")
+        return 0
+    if args.command == "review-list":
+        review = _build_review_list(args.timeline, read_json(args.timeline))
+        if args.format == "json":
+            print(json.dumps(review, indent=2, ensure_ascii=False))
+        else:
+            print(_format_review_list_markdown(review), end="")
         return 0
     if args.command == "validate-transcript":
         try:

@@ -60,6 +60,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Advanced Phase A2 added per-operation preview metadata/ref attachment tests.
 - Advanced Phase A2 continued with per-operation removed clip generation tests.
 - Advanced Phase A2 continued with per-operation before/after context clip generation tests.
+- Advanced Phase A2 added `review-list` CLI tests for markdown and JSON operation preview checklists.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
