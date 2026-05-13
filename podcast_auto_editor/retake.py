@@ -8,6 +8,7 @@ from .config import RetakeConfig
 from .timeline import new_operation_id
 
 _WORD_RE = re.compile(r"[\w']+", re.UNICODE)
+_FILLERS = {"um", "uh", "erm", "ah"}
 
 
 def normalize_text(text: str) -> str:
@@ -40,6 +41,49 @@ def detect_retake_candidates(transcript_segments: list[dict[str, Any]], config: 
         score = similarity(str(prev.get("text", "")), text)
         if 0 <= distance <= config.duplicate_window_s and score >= 0.88:
             candidates.append(_candidate_from_segments(prev, seg, "near_duplicate", min(0.95, score), None))
+    return candidates
+
+
+def detect_speech_cleanup_candidates(transcript_segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Detect conservative filler/false-start cleanup candidates.
+
+    These are speech-changing edits, so they always remain proposed and require
+    explicit manual review before render may remove them.
+    """
+    candidates: list[dict[str, Any]] = []
+    for seg in transcript_segments:
+        text = str(seg.get("text", ""))
+        normalized = normalize_text(text)
+        reason = None
+        confidence = 0.0
+        if normalized in _FILLERS:
+            reason = "filler"
+            confidence = 0.85
+        elif text.rstrip().endswith(("--", "—", "-")):
+            reason = "false_start"
+            confidence = 0.80
+        if reason:
+            candidates.append(
+                {
+                    "operation_id": new_operation_id("speech"),
+                    "type": "speech_cut",
+                    "source_range": {"start": float(seg["start"]), "end": float(seg["end"]), "unit": "seconds"},
+                    "output_range": None,
+                    "affected_tracks": ["audio:0"],
+                    "state": "proposed",
+                    "risk": "medium",
+                    "confidence": confidence,
+                    "provenance": {
+                        "detector": "transcript.speech_cleanup_heuristic",
+                        "reason": reason,
+                        "text": text,
+                        "auto_accept_policy": "manual review required for speech_cut",
+                    },
+                    "preview_ref": None,
+                    "diff_ref": None,
+                    "recovery_ref": None,
+                }
+            )
     return candidates
 
 

@@ -66,3 +66,5 @@ Use `dry-run` to create inspectable timeline, diff, recovery, preview metadata, 
 Removed-segment previews are generated from the actual operation source ranges, so review audio corresponds to what the timeline proposes to remove.
 
 Render exits with a clear quality-gate failure when loudness, true peak, clipping, or A/V sync checks fail; failed quality metadata is diagnostic, not a publishable success state.
+
+Speech cleanup heuristics can propose filler or false-start removals as `speech_cut` operations, but these speech-changing edits stay proposed until explicitly accepted with `review-accept`.

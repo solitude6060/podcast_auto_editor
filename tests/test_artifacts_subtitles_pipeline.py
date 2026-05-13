@@ -228,6 +228,13 @@ def test_retake_render_safety_accepts_manual_review_provenance_only_when_complet
     assert retake_operation_is_render_safe(op) is False
 
 
+def test_speech_cut_requires_manual_review_for_render_safety():
+    op = {"type": "speech_cut", "state": "accepted", "provenance": {}}
+    assert retake_operation_is_render_safe(op) is False
+    op["provenance"]["manual_review"] = {"decision": "accepted", "reviewer": "producer", "reviewed_at": "2026-05-13T00:00:00Z"}
+    assert retake_operation_is_render_safe(op) is True
+
+
 def test_undo_accepted_operations_restores_selected_cut_and_rebuilds_recovery():
     timeline = create_noop_timeline({"path": "input.wav", "duration": 6.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     timeline["operations"] = [

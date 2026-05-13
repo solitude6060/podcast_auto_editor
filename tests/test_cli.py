@@ -79,6 +79,19 @@ def test_review_accept_cli_marks_selected_retake_as_manually_reviewed(tmp_path):
     assert reviewed["recovery"]["removed_segments"][0]["operation_id"] == "retake1"
 
 
+def test_review_accept_cli_can_manually_accept_speech_cut(tmp_path):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "speech1", "type": "speech_cut", "source_range": {"start": 0.5, "end": 0.8}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "medium", "confidence": 0.8, "provenance": {"reason": "filler"}, "preview_ref": None, "diff_ref": None, "recovery_ref": None})
+    src = tmp_path / "timeline.json"
+    out = tmp_path / "reviewed.json"
+    write_json(src, timeline)
+
+    assert main(["review-accept", str(src), "--operation-id", "speech1", "--reviewer", "producer", "--out", str(out)]) == 0
+    reviewed = json.loads(out.read_text())
+    assert reviewed["operations"][0]["state"] == "accepted"
+    assert reviewed["operations"][0]["provenance"]["manual_review"]["decision"] == "accepted"
+
+
 def test_review_accept_cli_requires_explicit_operation_ids(tmp_path, capsys):
     timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     src = tmp_path / "timeline.json"

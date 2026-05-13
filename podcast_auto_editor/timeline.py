@@ -114,7 +114,7 @@ def validate_timeline(timeline: dict[str, Any]) -> list[str]:
             for ref in ("preview_ref", "diff_ref", "recovery_ref"):
                 if not op.get(ref):
                     errors.append(f"operation[{idx}] accepted operation missing {ref}")
-            if op.get("type") in {"silence_cut", "retake_cut", "video_cut"}:
+            if op.get("type") in {"silence_cut", "retake_cut", "speech_cut", "video_cut"}:
                 accepted_cuts.append((start, end, str(operation_id)))
     for previous, current in zip(sorted(accepted_cuts), sorted(accepted_cuts)[1:]):
         prev_start, prev_end, prev_id = previous
@@ -145,7 +145,7 @@ def pts_to_seconds(pts: int, timebase: str, start_pts: int = 0) -> float:
 def accepted_cut_ranges(timeline: dict[str, Any]) -> list[dict[str, float]]:
     ranges = []
     for op in timeline.get("operations", []):
-        if op.get("state") == "accepted" and op.get("type") in {"silence_cut", "retake_cut", "video_cut"}:
+        if op.get("state") == "accepted" and op.get("type") in {"silence_cut", "retake_cut", "speech_cut", "video_cut"}:
             source_range = op["source_range"]
             ranges.append({"start": float(source_range["start"]), "end": float(source_range["end"]), "operation_id": op["operation_id"]})
     return sorted(ranges, key=lambda item: (item["start"], item["end"]))

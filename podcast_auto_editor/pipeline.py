@@ -11,7 +11,7 @@ from .artifacts import RunPaths, ensure_run_dirs, run_paths, write_diff_artifact
 from .config import AppConfig, config_to_dict
 from .media import MediaToolError, detect_silence, measure_audio_quality, measure_av_sync, probe_media, render_audio, render_video
 from .quality import evaluate_quality
-from .retake import detect_retake_candidates, may_auto_accept_retake
+from .retake import detect_retake_candidates, detect_speech_cleanup_candidates, may_auto_accept_retake
 from .silence import propose_silence_cuts
 from .subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from .timeline import accepted_cut_ranges, build_recovery, create_noop_timeline, kept_segments, read_json, set_operation_state, validate_timeline, write_json
@@ -56,6 +56,7 @@ def add_retake_proposals(timeline: dict[str, Any], transcript_segments: list[dic
         if may_accept:
             op["state"] = "accepted"
         ops.append(op)
+    ops.extend(detect_speech_cleanup_candidates(transcript_segments))
     updated["operations"] = ops
     updated["recovery"] = build_recovery(updated)
     return updated
@@ -75,7 +76,7 @@ def accept_safe_defaults(timeline: dict[str, Any]) -> dict[str, Any]:
         if op.get("risk") == "deterministic" and op.get("type") == "silence_cut":
             op["state"] = "accepted"
             _attach_artifact_refs(op)
-        elif op.get("type") == "retake_cut":
+        elif op.get("type") in {"retake_cut", "speech_cut"}:
             op["state"] = "proposed"
     accepted["recovery"] = build_recovery(accepted)
     return accepted
@@ -132,8 +133,8 @@ def review_accept_operations(
         if operation_id not in selected:
             continue
         seen.add(operation_id)
-        if op.get("type") != "retake_cut":
-            raise ValueError(f"operation {operation_id} is not a retake_cut")
+        if op.get("type") not in {"retake_cut", "speech_cut"}:
+            raise ValueError(f"operation {operation_id} is not a reviewable speech edit")
         op["state"] = "accepted"
         _attach_artifact_refs(op)
         op.setdefault("provenance", {})["manual_review"] = {
@@ -150,7 +151,7 @@ def review_accept_operations(
 
 
 def retake_operation_is_render_safe(operation: dict[str, Any]) -> bool:
-    if operation.get("type") != "retake_cut":
+    if operation.get("type") not in {"retake_cut", "speech_cut"}:
         return True
     provenance = operation.get("provenance", {})
     auto_policy = str(provenance.get("auto_accept_policy", ""))

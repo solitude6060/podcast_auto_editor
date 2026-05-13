@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from podcast_auto_editor.config import load_config
-from podcast_auto_editor.retake import detect_retake_candidates, may_auto_accept_retake
+from podcast_auto_editor.retake import detect_retake_candidates, detect_speech_cleanup_candidates, may_auto_accept_retake
 from podcast_auto_editor.silence import propose_silence_cuts
 
 
@@ -66,3 +66,17 @@ def test_auto_accept_requires_all_gates():
     accepted, reason = may_auto_accept_retake(op, cfg, artifacts_exist=True)
     assert accepted is False
     assert "confidence" in reason
+
+
+def test_filler_and_false_start_create_proposed_speech_cleanup_candidates():
+    ops = detect_speech_cleanup_candidates([
+        {"start": 1.0, "end": 1.4, "text": "um"},
+        {"start": 2.0, "end": 2.8, "text": "I was going to--"},
+        {"start": 3.0, "end": 4.0, "text": "actual content"},
+    ])
+
+    assert [op["type"] for op in ops] == ["speech_cut", "speech_cut"]
+    assert all(op["state"] == "proposed" for op in ops)
+    assert all(op["risk"] == "medium" for op in ops)
+    assert ops[0]["provenance"]["reason"] == "filler"
+    assert ops[1]["provenance"]["reason"] == "false_start"
