@@ -66,6 +66,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Advanced Phase A5 added config and CLI export profile selection tests.
 - Advanced Phase A6 added replayable review session tests and CLI status/decide/rebuild coverage.
 - Advanced Phase A7 added static HTML report tests for escaped local operation/export artifact links.
+- Advanced Phase A8 added CI/release hygiene tests for uv GitHub Actions, changelog, release template, and `.omx/` local-only checks.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

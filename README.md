@@ -87,3 +87,9 @@ Per-operation preview metadata is recorded under `preview/operations/<operation_
 When FFmpeg is available, preview generation also writes per-operation removed-audio clips at `preview/operations/<operation_id>/removed.mp3` using the exact operation source range.
 
 Per-operation before/after clips are generated with context padding around each edit at `preview/operations/<operation_id>/before-after.mp3` when FFmpeg is available.
+
+## CI and release hygiene
+
+GitHub Actions runs the same uv-managed checks used locally: pytest, compileall, and a CLI help smoke. Keep `./scripts/smoke.sh` as the local pre-push command because it also exercises optional FFmpeg demo fixture generation when FFmpeg is installed.
+
+Release preparation should update `CHANGELOG.md` and use `docs/release-notes-template.md` for verification notes, compatibility notes, and local-only safety checks. `.omx/`, generated run artifacts, virtualenvs, and caches must remain untracked.

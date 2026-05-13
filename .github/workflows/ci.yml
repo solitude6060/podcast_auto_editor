@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: uv pytest and compileall
+    runs-on: ubuntu-latest
+    env:
+      UV_CACHE_DIR: /tmp/uv-cache-podcast-auto-editor
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run --group dev pytest -q -p no:cacheprovider
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q podcast_auto_editor tests
+
+      - name: CLI help smoke
+        run: uv run python -m podcast_auto_editor --help >/dev/null
