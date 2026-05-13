@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .explain import explain_operation
 from .timeline import build_recovery, write_json
 
 SCHEMA_VERSION = "review-session.v1"
@@ -124,6 +125,61 @@ def review_status(session: dict[str, Any], total_operations: int | None = None) 
         "decision_counts": counts,
         "latest_decisions": latest,
     }
+
+
+def next_review_item(timeline: dict[str, Any], session: dict[str, Any], session_path: str = "review-session.json") -> dict[str, Any] | None:
+    latest = _latest_decisions(session)
+    for op in timeline.get("operations", []):
+        operation_id = str(op.get("operation_id"))
+        decision = latest.get(operation_id, {})
+        if decision.get("decision") in {"accept", "reject"}:
+            continue
+        explanation = explain_operation(timeline, operation_id)
+        return {
+            "operation_id": operation_id,
+            "type": op.get("type"),
+            "state": op.get("state"),
+            "risk": op.get("risk"),
+            "confidence": op.get("confidence"),
+            "source": op.get("source_range"),
+            "detector": explanation.get("detector"),
+            "reason_code": explanation.get("reason_code"),
+            "evidence_text": explanation.get("evidence_text"),
+            "required_review": explanation.get("required_review"),
+            "preview_ref": explanation.get("artifact_refs", {}).get("preview"),
+            "removed_ref": explanation.get("artifact_refs", {}).get("removed"),
+            "decision_commands": {
+                "accept": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision accept --reviewer <name>",
+                "reject": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision reject --reviewer <name>",
+                "undo": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision undo --reviewer <name>",
+            },
+        }
+    return None
+
+
+def format_next_review_markdown(item: dict[str, Any] | None) -> str:
+    if item is None:
+        return "# Next Review Operation\n\nNo pending review operations.\n"
+    lines = [
+        "# Next Review Operation",
+        "",
+        f"- Operation: {item.get('operation_id')}",
+        f"- Type: {item.get('type')}",
+        f"- State: {item.get('state')}",
+        f"- Risk: {item.get('risk')}",
+        f"- Confidence: {item.get('confidence')}",
+        f"- Detector: {item.get('detector')}",
+        f"- Reason: {item.get('reason_code')}",
+        f"- Evidence: {item.get('evidence_text') or ''}",
+        f"- Required review: {item.get('required_review')}",
+        f"- Preview: {item.get('preview_ref') or '-'}",
+        "",
+        "## Decision commands",
+        "",
+    ]
+    for label, command in (item.get("decision_commands") or {}).items():
+        lines.append(f"- {label}: `{command}`")
+    return "\n".join(lines) + "\n"
 
 
 def format_review_status_markdown(status: dict[str, Any]) -> str:

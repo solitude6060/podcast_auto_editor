@@ -1,5 +1,7 @@
 # Changelog
 
+Traditional Chinese version: [`CHANGELOG.zh-TW.md`](CHANGELOG.zh-TW.md)
+
 All notable changes to this project should be documented here.
 
 ## Unreleased

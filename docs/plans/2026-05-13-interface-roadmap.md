@@ -65,3 +65,6 @@ Only if the local web UI is useful enough:
 - Unit tests for artifact parsing and HTML/JSON generation.
 - End-to-end fixture using generated run artifacts.
 - Security checks for HTML escaping and path traversal prevention.
+
+## Completion notes
+- 2026-05-13 review helper/local UI increment: completed `review next`, a localhost review server, and local URL usage as the desktop-wrapper-ready step.
