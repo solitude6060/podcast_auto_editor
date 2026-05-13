@@ -28,6 +28,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Config validation rejects unsafe quality, retake, and unsupported export settings at load time.
 - CLI `dry-run` writes inspection artifacts without edited media exports, and CLI `report` summarizes run artifacts for producer review.
 - Removed-segments preview uses actual operation source ranges, not a generic source excerpt.
+- Render fails when required quality gates fail, instead of treating failed quality metadata as success.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -46,6 +47,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Ralph Phase 1 added validation hardening tests for timeline bounds/track refs/overlaps and config fail-fast behavior.
 - Ralph Phase 2 added dry-run/report tests for no-render inspection artifacts and Markdown/JSON run reports.
 - Ralph Phase 3 added preview fidelity tests for FFmpeg `aselect` over removed operation ranges.
+- Ralph Phase 4 added quality-gate fail-fast tests for render output.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.

@@ -7,7 +7,7 @@ import pytest
 from podcast_auto_editor.artifacts import run_paths, write_diff_artifacts
 from podcast_auto_editor.config import load_config
 from podcast_auto_editor.media import MediaToolError
-from podcast_auto_editor.pipeline import accept_all, remap_cues_to_output, retake_operation_is_render_safe, transcribe_and_write, undo_accepted_operations, write_preview
+from podcast_auto_editor.pipeline import accept_all, remap_cues_to_output, render, retake_operation_is_render_safe, transcribe_and_write, undo_accepted_operations, write_preview
 from podcast_auto_editor.subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from podcast_auto_editor.timeline import create_noop_timeline
 
@@ -202,6 +202,18 @@ def test_quality_missing_clipping_metric_fails():
     report = evaluate_quality({"integrated_lufs": -16.0, "true_peak_db": -2.0}, 2, load_config().quality)
     assert report["passed"] is False
     assert [c for c in report["checks"] if c["name"] == "clipped_samples"][0]["passed"] is False
+
+
+def test_render_fails_when_quality_gate_fails(monkeypatch, tmp_path):
+    from podcast_auto_editor import pipeline
+
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 2}])
+    paths = run_paths(tmp_path, "ep1")
+    monkeypatch.setattr(pipeline, "render_audio", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline, "measure_audio_quality", lambda path: {"integrated_lufs": -30.0, "true_peak_db": 0.0, "clipped_samples": 12})
+
+    with pytest.raises(MediaToolError, match="quality gate failed"):
+        render("input.wav", paths, timeline, load_config())
 
 
 def test_retake_render_safety_accepts_manual_review_provenance_only_when_complete():

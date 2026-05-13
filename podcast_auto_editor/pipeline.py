@@ -294,6 +294,9 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
     timeline["export_metadata"]["edited_audio"] = str(paths.edited_wav)
     if paths.edited_mp4.exists():
         timeline["export_metadata"]["edited_video"] = str(paths.edited_mp4)
+    if not gate_report["passed"]:
+        failed = ", ".join(check["name"] for check in gate_report["checks"] if not check["passed"])
+        raise MediaToolError(f"quality gate failed: {failed}")
     return timeline
 
 
