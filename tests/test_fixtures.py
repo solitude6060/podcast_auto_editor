@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from podcast_auto_editor import fixtures
-from podcast_auto_editor.cli import main
+from podcast_auto_editor import cli, fixtures
 from podcast_auto_editor.media import MediaToolError
 
 
@@ -37,8 +36,8 @@ def test_make_demo_fixtures_creates_expected_files(monkeypatch, tmp_path):
 
 
 def test_demo_fixtures_cli_prints_paths(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(fixtures, "make_demo_fixtures", lambda out: {"audio": Path(out) / "a.wav", "video": Path(out) / "b.mp4"})
-    assert main(["demo-fixtures", "--out", str(tmp_path / "demo")]) == 0
+    monkeypatch.setattr(cli, "make_demo_fixtures", lambda out: {"audio": Path(out) / "a.wav", "video": Path(out) / "b.mp4"})
+    assert cli.main(["demo-fixtures", "--out", str(tmp_path / "demo")]) == 0
     out = capsys.readouterr().out
     assert "audio:" in out and "video:" in out
 
