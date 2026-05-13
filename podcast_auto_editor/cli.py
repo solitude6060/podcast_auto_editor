@@ -11,6 +11,7 @@ from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
+from .review_session import apply_decision, format_review_status_markdown, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
@@ -82,6 +83,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_review_list = sub.add_parser("review-list", help="List timeline operations with preview refs for producer review")
     p_review_list.add_argument("timeline")
     p_review_list.add_argument("--format", choices=("json", "markdown"), default="markdown")
+
+    p_review = sub.add_parser("review", help="Review session commands")
+    review_sub = p_review.add_subparsers(dest="review_command", required=True)
+    p_review_status = review_sub.add_parser("status", help="Summarize a review session")
+    p_review_status.add_argument("session")
+    p_review_status.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_review_decide = review_sub.add_parser("decide", help="Append an accept/reject/undo review decision")
+    p_review_decide.add_argument("session")
+    p_review_decide.add_argument("--operation-id", required=True)
+    p_review_decide.add_argument("--decision", choices=("accept", "reject", "undo"), required=True)
+    p_review_decide.add_argument("--reviewer", required=True)
+    p_review_decide.add_argument("--note", default="")
+    p_review_decide.add_argument("--decided-at")
+    p_review_rebuild = review_sub.add_parser("rebuild", help="Replay a review session onto a proposed timeline")
+    p_review_rebuild.add_argument("session")
+    p_review_rebuild.add_argument("--timeline", required=True)
+    p_review_rebuild.add_argument("--out", required=True)
 
     p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
     p_explain.add_argument("timeline")
@@ -395,6 +413,32 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(_format_review_list_markdown(review), end="")
         return 0
+    if args.command == "review":
+        if args.review_command == "status":
+            status = review_status(read_json(args.session))
+            if args.format == "json":
+                print(json.dumps(status, indent=2, ensure_ascii=False))
+            else:
+                print(format_review_status_markdown(status), end="")
+            return 0
+        if args.review_command == "decide":
+            try:
+                session = apply_decision(read_json(args.session), args.operation_id, args.decision, args.reviewer, note=args.note, decided_at=args.decided_at)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            write_review_session(args.session, session)
+            print(args.session)
+            return 0
+        if args.review_command == "rebuild":
+            try:
+                rebuilt = replay_review_session(read_json(args.timeline), read_json(args.session))
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            write_json(args.out, rebuilt)
+            print(args.out)
+            return 0
     if args.command == "explain":
         try:
             explanation = explain_operation(read_json(args.timeline), args.operation_id)

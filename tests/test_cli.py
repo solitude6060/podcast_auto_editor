@@ -392,3 +392,97 @@ def test_render_cli_reports_unknown_export_profile(tmp_path, capsys):
     ]) == 1
 
     assert "unknown export profile: video-social" in capsys.readouterr().err
+
+
+def test_review_status_cli_outputs_session_summary(tmp_path, capsys):
+    session = {
+        "schema_version": "review-session.v1",
+        "source_timeline": "timeline.json",
+        "decisions": [
+            {"operation_id": "speech1", "decision": "accept", "reviewer": "producer", "note": "ok", "decided_at": "2026-05-13T00:00:00Z"}
+        ],
+    }
+    path = tmp_path / "review-session.json"
+    path.write_text(json.dumps(session))
+
+    assert main(["review", "status", str(path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "# Review Session Status" in out
+    assert "Accepted: 1" in out
+
+
+def test_review_status_cli_outputs_json(tmp_path, capsys):
+    session = {"schema_version": "review-session.v1", "source_timeline": "timeline.json", "decisions": []}
+    path = tmp_path / "review-session.json"
+    path.write_text(json.dumps(session))
+
+    assert main(["review", "status", str(path), "--format", "json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "review-session.v1"
+    assert payload["decision_counts"]["accepted"] == 0
+
+
+def test_review_decide_cli_appends_decision(tmp_path):
+    session = {"schema_version": "review-session.v1", "source_timeline": "timeline.json", "decisions": []}
+    path = tmp_path / "review-session.json"
+    path.write_text(json.dumps(session))
+
+    assert main([
+        "review",
+        "decide",
+        str(path),
+        "--operation-id",
+        "speech1",
+        "--decision",
+        "accept",
+        "--reviewer",
+        "producer",
+        "--note",
+        "confirmed",
+        "--decided-at",
+        "2026-05-13T00:00:00Z",
+    ]) == 0
+
+    updated = json.loads(path.read_text())
+    assert updated["decisions"] == [{
+        "operation_id": "speech1",
+        "decision": "accept",
+        "reviewer": "producer",
+        "note": "confirmed",
+        "decided_at": "2026-05-13T00:00:00Z",
+    }]
+
+
+def test_review_rebuild_cli_replays_session_to_timeline(tmp_path):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "medium",
+        "confidence": 0.8,
+        "provenance": {},
+        "preview_ref": "preview/speech1.mp3",
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    session_path = tmp_path / "review-session.json"
+    out = tmp_path / "timeline.accepted.v1.json"
+    write_json(timeline_path, timeline)
+    session_path.write_text(json.dumps({
+        "schema_version": "review-session.v1",
+        "source_timeline": str(timeline_path),
+        "decisions": [{"operation_id": "speech1", "decision": "accept", "reviewer": "producer", "note": "ok", "decided_at": "2026-05-13T00:00:00Z"}],
+    }))
+
+    assert main(["review", "rebuild", str(session_path), "--timeline", str(timeline_path), "--out", str(out)]) == 0
+
+    rebuilt = json.loads(out.read_text())
+    assert rebuilt["operations"][0]["state"] == "accepted"
+    assert rebuilt["operations"][0]["provenance"]["manual_review"]["decision"] == "accepted"
