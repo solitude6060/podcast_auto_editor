@@ -71,3 +71,34 @@ def test_render_quality_failure_names_profile(monkeypatch, tmp_path):
 
     with pytest.raises(MediaToolError, match="quality gate failed for podcast-stereo: loudness"):
         render("input.wav", paths, timeline, load_config())
+
+
+def test_render_honors_selected_export_profiles(monkeypatch, tmp_path):
+    from podcast_auto_editor import pipeline
+
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 2}])
+    paths = run_paths(tmp_path, "ep1")
+    calls = []
+
+    def fake_render_audio(input_path, output_path, kept, config, channels=2):
+        calls.append((output_path.name, channels))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"audio")
+
+    monkeypatch.setattr(pipeline, "render_audio", fake_render_audio)
+    monkeypatch.setattr(pipeline, "measure_audio_quality", lambda path: {"integrated_lufs": -19.0, "true_peak_db": -2.0, "clipped_samples": 0})
+
+    rendered = render("input.wav", paths, timeline, load_config(), export_profile_names=["podcast-mono"])
+
+    assert calls == [("episode.podcast-mono.mp3", 1)]
+    assert [profile["name"] for profile in rendered["export_metadata"]["export_profiles"]] == ["podcast-mono"]
+    assert rendered["export_metadata"]["edited_audio"] == str(paths.exports / "episode.podcast-mono.mp3")
+    assert rendered["export_metadata"]["quality_gate_report"] == rendered["export_metadata"]["export_profiles"][0]["quality_gate_report"]
+
+
+def test_render_rejects_unknown_export_profile(tmp_path):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 2}])
+    paths = run_paths(tmp_path, "ep1")
+
+    with pytest.raises(ValueError, match="unknown export profile: video-social"):
+        render("input.wav", paths, timeline, load_config(), export_profile_names=["video-social"])

@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .exports import EXPORT_PROFILES
+
 
 @dataclass(frozen=True)
 class QualityConfig:
@@ -40,6 +42,7 @@ class AppConfig:
     retake: RetakeConfig = field(default_factory=RetakeConfig)
     output_audio_ext: str = "wav"
     publish_audio_ext: str = "mp3"
+    export_profiles: tuple[str, ...] = ("archive-wav", "podcast-stereo", "podcast-mono")
 
 
 class ConfigValidationError(ValueError):
@@ -65,11 +68,13 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     retake = _merge_dataclass(default.retake, data.get("retake", {}))
     output_audio_ext = data.get("output_audio_ext", default.output_audio_ext)
     publish_audio_ext = data.get("publish_audio_ext", default.publish_audio_ext)
+    export_profiles = tuple(data.get("export_profiles", default.export_profiles))
     config = AppConfig(
         quality=quality,
         retake=retake,
         output_audio_ext=output_audio_ext,
         publish_audio_ext=publish_audio_ext,
+        export_profiles=export_profiles,
     )
     validate_config(config)
     return config
@@ -103,5 +108,10 @@ def validate_config(config: AppConfig) -> None:
         errors.append("output_audio_ext must be one of: wav")
     if config.publish_audio_ext not in {"mp3"}:
         errors.append("publish_audio_ext must be one of: mp3")
+    if not config.export_profiles:
+        errors.append("export_profiles must contain at least one profile")
+    for profile in config.export_profiles:
+        if profile not in EXPORT_PROFILES:
+            errors.append(f"unknown export profile: {profile}")
     if errors:
         raise ConfigValidationError("; ".join(errors))

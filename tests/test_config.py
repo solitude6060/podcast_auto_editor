@@ -54,3 +54,24 @@ def load_config_dict(data):
     path = Path(tempfile.mkdtemp()) / "config.json"
     path.write_text(json.dumps(data))
     return load_config(path)
+
+
+def test_config_accepts_export_profile_subset(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text('{"export_profiles": ["archive-wav", "podcast-mono"]}')
+
+    config = load_config(path)
+
+    assert config.export_profiles == ("archive-wav", "podcast-mono")
+
+
+def test_config_rejects_unknown_export_profile(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text('{"export_profiles": ["video-social"]}')
+
+    try:
+        load_config(path)
+    except Exception as exc:
+        assert "unknown export profile: video-social" in str(exc)
+    else:
+        raise AssertionError("expected invalid export profile to fail")

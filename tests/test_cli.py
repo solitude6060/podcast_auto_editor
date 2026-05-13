@@ -345,3 +345,50 @@ def test_explain_cli_reports_missing_operation(tmp_path, capsys):
 
     assert main(["explain", str(src), "--operation-id", "missing"]) == 1
     assert "operation missing was not found" in capsys.readouterr().err
+
+
+def test_run_cli_passes_export_profile_overrides(tmp_path, monkeypatch, capsys):
+    captured = {}
+
+    def fake_run_pipeline(input_path, output_dir, config, episode_id=None, transcript_segments=None, export_profile_names=None):
+        captured["export_profile_names"] = export_profile_names
+        root = tmp_path / "runs" / "ep1"
+        root.mkdir(parents=True)
+        return type("Paths", (), {"root": root})()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run_pipeline)
+
+    assert main([
+        "run",
+        str(tmp_path / "input.wav"),
+        "--out",
+        str(tmp_path / "runs"),
+        "--episode-id",
+        "ep1",
+        "--export-profile",
+        "podcast-mono",
+        "--export-profile",
+        "archive-wav",
+    ]) == 0
+
+    assert captured["export_profile_names"] == ["podcast-mono", "archive-wav"]
+    assert str(tmp_path / "runs" / "ep1") in capsys.readouterr().out
+
+
+def test_render_cli_reports_unknown_export_profile(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main([
+        "render",
+        str(tmp_path / "input.wav"),
+        "--timeline",
+        str(src),
+        "--out",
+        str(tmp_path / "runs"),
+        "--export-profile",
+        "video-social",
+    ]) == 1
+
+    assert "unknown export profile: video-social" in capsys.readouterr().err

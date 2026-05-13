@@ -8,6 +8,7 @@ from pathlib import Path
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
+from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .transcript import TranscriptValidationError, load_transcript_segments
@@ -59,12 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("--out", default="runs")
     p_render.add_argument("--episode-id")
     p_render.add_argument("--accept-safe-defaults", action="store_true", help="Accept deterministic silence cuts only before rendering")
+    p_render.add_argument("--export-profile", action="append", help="Render only the named export profile; repeat for multiple profiles")
 
     p_run = sub.add_parser("run")
     p_run.add_argument("input")
     p_run.add_argument("--out", default="runs")
     p_run.add_argument("--episode-id")
     p_run.add_argument("--transcript-json", help="Optional transcript JSON: either a segment array or an object with a segments array")
+    p_run.add_argument("--export-profile", action="append", help="Render only the named export profile; repeat for multiple profiles")
 
     p_dry_run = sub.add_parser("dry-run", help="Write inspection artifacts without rendering edited media exports")
     p_dry_run.add_argument("input")
@@ -312,6 +315,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "render":
         timeline = read_json(args.timeline)
+        try:
+            select_export_profiles(args.export_profile or config.export_profiles)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         if any(op.get("state") == "proposed" for op in timeline.get("operations", [])) and not args.accept_safe_defaults:
             print("render requires an accepted timeline; run accept first or pass --accept-safe-defaults for deterministic silence only", file=sys.stderr)
             return 1
@@ -326,7 +334,11 @@ def main(argv: list[str] | None = None) -> int:
         write_preview(paths, args.input, timeline)
         write_diff_artifacts(paths, timeline, timeline)
         write_recovery_artifacts(paths, timeline)
-        rendered = render(args.input, paths, timeline, config)
+        try:
+            rendered = render(args.input, paths, timeline, config, export_profile_names=args.export_profile)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         rendered = transcribe_and_write(paths, rendered)
         write_json(paths.accepted_timeline, rendered)
         print(paths.accepted_timeline)
@@ -339,7 +351,11 @@ def main(argv: list[str] | None = None) -> int:
             except (OSError, TranscriptValidationError) as exc:
                 print(str(exc), file=sys.stderr)
                 return 1
-        paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments)
+        try:
+            paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments, export_profile_names=args.export_profile)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         print(paths.root)
         return 0
     if args.command == "dry-run":

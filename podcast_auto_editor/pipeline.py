@@ -9,7 +9,7 @@ from typing import Any
 
 from .artifacts import RunPaths, ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import AppConfig, config_to_dict
-from .exports import default_export_profiles, export_output_path
+from .exports import export_output_path, select_export_profiles
 from .media import MediaToolError, detect_silence, measure_audio_quality, measure_av_sync, probe_media, render_audio, render_video, validate_source_av_sync
 from .quality import evaluate_quality
 from .retake import detect_retake_candidates, detect_speech_cleanup_candidates, may_auto_accept_retake
@@ -333,7 +333,7 @@ def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, A
         raise MediaToolError(result.stderr.strip() or "removed-segments preview generation failed")
 
 
-def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], config: AppConfig) -> dict[str, Any]:
+def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], config: AppConfig, export_profile_names: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
     duration = float(timeline.get("media_manifest", {}).get("duration", 0.0))
     kept = kept_segments(duration, accepted_cut_ranges(timeline))
     source_channels = 2
@@ -352,7 +352,8 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
         av_sync_report = measure_av_sync(paths.edited_mp4)
 
     export_profiles = []
-    for profile in default_export_profiles():
+    profiles = select_export_profiles(export_profile_names or config.export_profiles)
+    for profile in profiles:
         output_path = export_output_path(paths, profile)
         profile_channels = profile.channels or source_channels
         render_audio(input_path, output_path, kept, config, channels=profile_channels)
@@ -375,7 +376,7 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
 
     timeline.setdefault("export_metadata", {})["export_profiles"] = export_profiles
     timeline["export_metadata"]["quality_gate_report"] = export_profiles[0]["quality_gate_report"]
-    timeline["export_metadata"]["edited_audio"] = str(paths.edited_wav)
+    timeline["export_metadata"]["edited_audio"] = export_profiles[0]["path"]
     if paths.edited_mp4.exists():
         timeline["export_metadata"]["edited_video"] = str(paths.edited_mp4)
     return timeline
@@ -441,7 +442,7 @@ def transcribe_and_write(paths: RunPaths, timeline: dict[str, Any], cues: list[d
     return timeline
 
 
-def run_pipeline(input_path: str | Path, output_dir: str | Path, config: AppConfig, episode_id: str | None = None, transcript_segments: list[dict[str, Any]] | None = None) -> RunPaths:
+def run_pipeline(input_path: str | Path, output_dir: str | Path, config: AppConfig, episode_id: str | None = None, transcript_segments: list[dict[str, Any]] | None = None, export_profile_names: list[str] | tuple[str, ...] | None = None) -> RunPaths:
     episode_id = episode_id or episode_id_from_path(input_path)
     paths = run_paths(output_dir, episode_id)
     timeline = probe(input_path, paths, config)
@@ -456,7 +457,7 @@ def run_pipeline(input_path: str | Path, output_dir: str | Path, config: AppConf
     accepted = apply_retake_auto_accept_policy(accepted, config)
     write_diff_artifacts(paths, proposed, accepted)
     write_recovery_artifacts(paths, accepted)
-    accepted = render(input_path, paths, accepted, config)
+    accepted = render(input_path, paths, accepted, config, export_profile_names=export_profile_names)
     accepted = transcribe_and_write(paths, accepted, cues=transcript_segments or [])
     write_json(paths.accepted_timeline, accepted)
     write_manifest(paths, {"input": str(input_path), "episode_id": episode_id, "artifacts": {"accepted_timeline": str(paths.accepted_timeline), "transcript": str(paths.transcript)}, "config": config_to_dict(config)})
