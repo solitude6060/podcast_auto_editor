@@ -51,6 +51,7 @@ This repository follows a Claude-inspired but Codex-native delivery discipline.
    - User-facing progress/final messages default to concise Traditional Chinese.
    - Use concrete evidence: commands, pass counts, commit hashes, branch names.
    - Repo docs, code, commits, and PR descriptions stay English.
+   - User-facing repository documents must have a Traditional Chinese version (`*.zh-TW.md`) or a Traditional Chinese section in the same file.
 
 10. **Interface planning**
    - Usability work follows `docs/plans/2026-05-13-interface-roadmap.md`.

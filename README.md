@@ -1,5 +1,7 @@
 # Podcast Auto Editor
 
+繁體中文版本：[`README.zh-TW.md`](README.zh-TW.md)
+
 Local-first, CLI-first MVP for full-length podcast post-production.
 
 The project uses a canonical reversible `timeline.v1` before media mutation. It is audio-first (WAV/MP3/M4A), optionally supports MP4 sync/export, and keeps automated edits inspectable through preview, diff, and recovery artifacts.
