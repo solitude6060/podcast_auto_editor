@@ -11,8 +11,9 @@ from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .html_report import build_html_report, write_html_report
+from .local_review_server import serve_review_app, validate_review_host
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
-from .review_session import apply_decision, format_review_status_markdown, replay_review_session, review_status, write_review_session
+from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
@@ -105,6 +106,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_review_rebuild.add_argument("session")
     p_review_rebuild.add_argument("--timeline", required=True)
     p_review_rebuild.add_argument("--out", required=True)
+    p_review_next = review_sub.add_parser("next", help="Show the next operation needing review")
+    p_review_next.add_argument("session")
+    p_review_next.add_argument("--timeline", required=True)
+    p_review_next.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_review_serve = review_sub.add_parser("serve", help="Run a localhost review UI for a run directory")
+    p_review_serve.add_argument("run_dir")
+    p_review_serve.add_argument("--host", default="127.0.0.1")
+    p_review_serve.add_argument("--port", type=int, default=8765)
 
     p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
     p_explain.add_argument("timeline")
@@ -450,6 +459,21 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             write_json(args.out, rebuilt)
             print(args.out)
+            return 0
+        if args.review_command == "next":
+            item = next_review_item(read_json(args.timeline), read_json(args.session), session_path=args.session)
+            if args.format == "json":
+                print(json.dumps(item, indent=2, ensure_ascii=False))
+            else:
+                print(format_next_review_markdown(item), end="")
+            return 0
+        if args.review_command == "serve":
+            try:
+                validate_review_host(args.host)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            serve_review_app(args.run_dir, host=args.host, port=args.port)
             return 0
     if args.command == "explain":
         try:

@@ -66,3 +66,6 @@ podcast-auto-editor review rebuild ...
 - Artifact parsing 與 HTML/JSON 產生的單元測試。
 - 使用 generated run artifacts 的端到端 fixture。
 - HTML escaping 與 path traversal 防護測試。
+
+## 完成紀錄
+- 2026-05-13 review helper/local UI increment：完成 `review next`、本機 localhost review server、以及桌面 wrapper 前的本機 URL 使用方式。

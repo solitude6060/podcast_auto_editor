@@ -71,3 +71,14 @@ UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q po
 ```
 
 GitHub Actions 會跑同一組 uv 測試與 compileall。`.omx/`、`.venv/`、runs、credentials、cache 都不能進版控。
+
+### 本機審稿介面
+
+產生 run directory 後，可以使用 scriptable review helper 或本機 review server：
+
+```bash
+uv run python -m podcast_auto_editor review next runs/episode/review-session.json   --timeline runs/episode/timeline.proposed.v1.json
+uv run python -m podcast_auto_editor review serve runs/episode
+```
+
+`review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
