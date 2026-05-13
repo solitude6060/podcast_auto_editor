@@ -85,3 +85,5 @@ The smoke script runs the uv test suite, compileall, CLI help, and optional FFmp
 Per-operation preview metadata is recorded under `preview/operations/<operation_id>/` so review tools can link each proposed edit to its own before/after and removed-audio refs.
 
 When FFmpeg is available, preview generation also writes per-operation removed-audio clips at `preview/operations/<operation_id>/removed.mp3` using the exact operation source range.
+
+Per-operation before/after clips are generated with context padding around each edit at `preview/operations/<operation_id>/before-after.mp3` when FFmpeg is available.

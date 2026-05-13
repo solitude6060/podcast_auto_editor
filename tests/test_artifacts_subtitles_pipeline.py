@@ -225,6 +225,48 @@ def test_write_preview_generates_per_operation_removed_clip(monkeypatch, tmp_pat
     assert any(str(command[-1]).endswith("preview/removed-segments-preview.mp3") for command in commands)
 
 
+def test_write_preview_generates_per_operation_before_after_clip(monkeypatch, tmp_path):
+    from podcast_auto_editor import media
+
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 8.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append(
+        {
+            "operation_id": "cut1",
+            "type": "silence_cut",
+            "source_range": {"start": 3.0, "end": 4.0},
+            "output_range": None,
+            "affected_tracks": ["audio:0"],
+            "state": "accepted",
+            "risk": "deterministic",
+            "confidence": 1.0,
+            "provenance": {},
+            "preview_ref": None,
+            "diff_ref": "diff/timeline-diff.json",
+            "recovery_ref": "recovery/recovery-map.json",
+        }
+    )
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"fake")
+    paths = run_paths(tmp_path, "ep1")
+    commands = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    monkeypatch.setattr(media, "require_tool", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(media, "run_command", lambda command: commands.append(command) or Result())
+
+    write_preview(paths, input_path, timeline)
+
+    before_after_commands = [command for command in commands if str(command[-1]).endswith("preview/operations/cut1/before-after.mp3")]
+    assert len(before_after_commands) == 1
+    command = before_after_commands[0]
+    assert command[command.index("-ss") + 1] == "1.000000"
+    assert command[command.index("-t") + 1] == "5.000000"
+    assert any(str(command[-1]).endswith("preview/operations/cut1/removed.mp3") for command in commands)
+
+
 def test_transcribe_and_write_creates_required_assets():
     timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     with tempfile.TemporaryDirectory() as td:

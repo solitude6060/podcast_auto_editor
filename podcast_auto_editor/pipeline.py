@@ -272,8 +272,31 @@ def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, A
         select_expr = "+".join(f"between(t,{segment['source_start']:.6f},{segment['source_end']:.6f})" for segment in preview_segments)
         for segment in preview_segments:
             operation_preview = segment["operation_preview"]
+            before_after_output = paths.root / operation_preview["before_after_ref"]
             removed_output = paths.root / operation_preview["removed_ref"]
+            before_after_output.parent.mkdir(parents=True, exist_ok=True)
             removed_output.parent.mkdir(parents=True, exist_ok=True)
+            context_padding = float(operation_preview["context_padding_s"])
+            context_start = max(0.0, float(segment["source_start"]) - context_padding)
+            context_end = float(segment["source_end"]) + context_padding
+            context_duration = max(0.0, context_end - context_start)
+            result = run_command([
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-ss",
+                f"{context_start:.6f}",
+                "-t",
+                f"{context_duration:.6f}",
+                "-i",
+                str(input_path),
+                "-vn",
+                "-acodec",
+                "libmp3lame",
+                str(before_after_output),
+            ])
+            if result.returncode != 0:
+                raise MediaToolError(result.stderr.strip() or f"operation before/after preview generation failed for {segment['operation_id']}")
             segment_expr = f"between(t,{segment['source_start']:.6f},{segment['source_end']:.6f})"
             result = run_command([
                 "ffmpeg",
