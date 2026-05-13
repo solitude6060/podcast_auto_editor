@@ -251,7 +251,23 @@ def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, A
     result = run_command(["ffmpeg", "-y", "-hide_banner", "-t", "30", "-i", str(input_path), "-vn", "-acodec", "libmp3lame", str(paths.before_after_preview)])
     if result.returncode != 0:
         raise MediaToolError(result.stderr.strip() or "preview generation failed")
-    result = run_command(["ffmpeg", "-y", "-hide_banner", "-t", "30", "-i", str(input_path), "-vn", "-acodec", "libmp3lame", str(paths.removed_segments_preview)])
+    if preview_segments:
+        select_expr = "+".join(f"between(t,{segment['source_start']:.6f},{segment['source_end']:.6f})" for segment in preview_segments)
+        result = run_command([
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-i",
+            str(input_path),
+            "-af",
+            f"aselect='{select_expr}',asetpts=N/SR/TB",
+            "-vn",
+            "-acodec",
+            "libmp3lame",
+            str(paths.removed_segments_preview),
+        ])
+    else:
+        result = run_command(["ffmpeg", "-y", "-hide_banner", "-t", "30", "-i", str(input_path), "-vn", "-acodec", "libmp3lame", str(paths.removed_segments_preview)])
     if result.returncode != 0:
         raise MediaToolError(result.stderr.strip() or "removed-segments preview generation failed")
 

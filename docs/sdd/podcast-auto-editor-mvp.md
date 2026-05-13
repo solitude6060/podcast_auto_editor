@@ -27,6 +27,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Timeline validation rejects invalid confidence, unknown track IDs, out-of-bounds ranges, media-duration overflow, and overlapping accepted cuts before render.
 - Config validation rejects unsafe quality, retake, and unsupported export settings at load time.
 - CLI `dry-run` writes inspection artifacts without edited media exports, and CLI `report` summarizes run artifacts for producer review.
+- Removed-segments preview uses actual operation source ranges, not a generic source excerpt.
 
 ## Quality gates
 - Stereo: -16 LUFS ±1 LU.
@@ -44,6 +45,7 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - RALPLAN follow-up added tests for explicit undo scope, selected undo, all-accepted undo, non-accepted selection rejection, and recovery rebuilds.
 - Ralph Phase 1 added validation hardening tests for timeline bounds/track refs/overlaps and config fail-fast behavior.
 - Ralph Phase 2 added dry-run/report tests for no-render inspection artifacts and Markdown/JSON run reports.
+- Ralph Phase 3 added preview fidelity tests for FFmpeg `aselect` over removed operation ranges.
 
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
