@@ -9,9 +9,13 @@ The project uses a canonical reversible `timeline.v1` before media mutation. It 
 ```bash
 python -m podcast_auto_editor probe input.wav --out runs
 python -m podcast_auto_editor run input.wav --out runs
+python -m podcast_auto_editor validate-transcript transcript.json
+python -m podcast_auto_editor demo-fixtures --out demo-fixtures
 ```
 
 FFmpeg/ffprobe are used for real media probing/rendering when installed. Core timeline, safety policy, artifact, subtitle, and chapter logic are pure Python stdlib and tested without external services.
+
+`demo-fixtures` creates deterministic sample audio/video inputs (`demo-silence.wav`, `demo-av.mp4`) for local smoke tests and docs examples. If ffmpeg is unavailable, the command fails with a clear tool-not-found error.
 
 ## Safety policy
 
@@ -30,3 +34,12 @@ python -m podcast_auto_editor review-accept runs/episode/timeline.proposed.v1.js
 Plain `accept` is still insufficient for rendering accepted `retake_cut` operations; render requires either successful auto-accept provenance or explicit manual-review provenance.
 
 Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When accepted cuts remove source ranges, supplied transcript cues are remapped through the timeline recovery map before assets are written.
+
+## Transcript import
+
+`run --transcript-json` accepts either:
+
+- a legacy JSON array of cue objects, or
+- a `{"schema_version":"transcript.v1","segments":[...]}` wrapper.
+
+Each cue must include numeric `start` and `end` fields plus string `text`. Invalid shapes fail fast before the pipeline starts, so transcript import errors are reported clearly instead of surfacing later as media or retake errors.

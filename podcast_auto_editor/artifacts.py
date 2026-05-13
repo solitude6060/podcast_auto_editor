@@ -77,22 +77,107 @@ def ensure_run_dirs(paths: RunPaths) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def _format_seconds(value: float) -> str:
+    return f"{value:.3f}s"
+
+
+def _operation_reason(operation: dict[str, Any]) -> str:
+    provenance = operation.get("provenance", {})
+    manual_review = provenance.get("manual_review")
+    if isinstance(manual_review, dict) and manual_review.get("note"):
+        return str(manual_review["note"])
+    auto_accept_policy = provenance.get("auto_accept_policy")
+    if auto_accept_policy:
+        return str(auto_accept_policy)
+    silence = provenance.get("silence")
+    if isinstance(silence, dict) and silence.get("threshold_db"):
+        return f"silence below {silence['threshold_db']} dB"
+    return ""
+
+
+def _markdown_table_cell(value: Any) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _removed_segment_metadata(removed: list[dict[str, Any]], operations: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for item in removed:
+        operation = operations.get(item.get("operation_id", ""), {})
+        enriched.append(
+            {
+                **item,
+                "operation_type": operation.get("type", "unknown"),
+                "risk": operation.get("risk", "unknown"),
+                "confidence": operation.get("confidence"),
+                "reason": _operation_reason(operation),
+                "preview_ref": operation.get("preview_ref"),
+                "diff_ref": operation.get("diff_ref"),
+                "recovery_ref": operation.get("recovery_ref"),
+            }
+        )
+    return enriched
+
+
 def write_diff_artifacts(paths: RunPaths, proposed: dict[str, Any], accepted: dict[str, Any]) -> None:
     ensure_run_dirs(paths)
     proposed_ops = {op["operation_id"]: op for op in proposed.get("operations", [])}
     accepted_ops = {op["operation_id"]: op for op in accepted.get("operations", [])}
+    removed = accepted.get("recovery", {}).get("removed_segments", [])
+    removed_metadata = _removed_segment_metadata(removed, accepted_ops)
+    total_removed_duration = sum(float(item.get("duration", 0.0)) for item in removed)
     diff = {
         "proposed_count": len(proposed_ops),
         "accepted_count": sum(1 for op in accepted_ops.values() if op.get("state") == "accepted"),
         "rejected_count": sum(1 for op in accepted_ops.values() if op.get("state") == "rejected"),
+        "proposed_only_count": len(set(proposed_ops).difference(accepted_ops)),
+        "total_removed_duration": total_removed_duration,
         "operations": list(accepted_ops.values()),
+        "removed_segments": removed_metadata,
     }
-    removed = accepted.get("recovery", {}).get("removed_segments", [])
     write_json(paths.timeline_diff, diff)
-    write_json(paths.removed_segments, removed)
-    lines = ["# Podcast Auto Editor Diff", "", f"Accepted edits: {diff['accepted_count']}", f"Removed segments: {len(removed)}", ""]
-    for item in removed:
-        lines.append(f"- {item['operation_id']}: {item['source_start']:.3f}s–{item['source_end']:.3f}s")
+    write_json(paths.removed_segments, removed_metadata)
+    lines = [
+        "# Podcast Auto Editor Diff",
+        "",
+        "## Summary",
+        "",
+        f"- Proposed edits: {diff['proposed_count']}",
+        f"- Accepted edits: {diff['accepted_count']}",
+        f"- Rejected edits: {diff['rejected_count']}",
+        f"- Removed segments: {len(removed_metadata)}",
+        f"- Total removed duration: {_format_seconds(total_removed_duration)}",
+        "",
+        "## Removed Segments",
+        "",
+    ]
+    if removed_metadata:
+        lines.extend(
+            [
+                "| Operation | Type | Source range | Duration | Risk | Confidence | Preview | Reason |",
+                "| --- | --- | --- | ---: | --- | ---: | --- | --- |",
+            ]
+        )
+        for item in removed_metadata:
+            confidence = "" if item.get("confidence") is None else f"{float(item['confidence']):.2f}"
+            source_range = f"{_format_seconds(float(item['source_start']))}–{_format_seconds(float(item['source_end']))}"
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _markdown_table_cell(item["operation_id"]),
+                        _markdown_table_cell(item["operation_type"]),
+                        source_range,
+                        _format_seconds(float(item["duration"])),
+                        _markdown_table_cell(item["risk"]),
+                        confidence,
+                        _markdown_table_cell(item.get("preview_ref") or ""),
+                        _markdown_table_cell(item.get("reason") or ""),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("No accepted edits remove source audio.")
     paths.human_summary.write_text("\n".join(lines) + "\n")
 
 

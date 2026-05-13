@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 
 from .artifacts import run_paths, write_diff_artifacts, write_recovery_artifacts
 from .config import load_config
+from .fixtures import make_demo_fixtures
 from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, write_preview
+from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
 
@@ -54,10 +54,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("input")
     p_run.add_argument("--out", default="runs")
     p_run.add_argument("--episode-id")
-    p_run.add_argument("--transcript-json", help="Optional post-edit transcript segment JSON for MVP/stub runs")
+    p_run.add_argument("--transcript-json", help="Optional transcript JSON: either a segment array or an object with a segments array")
+
+    p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
+    p_validate_transcript.add_argument("transcript_json")
 
     p_validate = sub.add_parser("validate")
     p_validate.add_argument("timeline")
+
+    p_demo = sub.add_parser("demo-fixtures", help="Generate deterministic demo media fixtures with ffmpeg when available")
+    p_demo.add_argument("--out", default="demo-fixtures")
     return parser
 
 
@@ -130,9 +136,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         transcript_segments = None
         if args.transcript_json:
-            transcript_segments = json.loads(Path(args.transcript_json).read_text())
+            try:
+                transcript_segments = load_transcript_segments(args.transcript_json)
+            except (OSError, TranscriptValidationError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
         paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments)
         print(paths.root)
+        return 0
+    if args.command == "validate-transcript":
+        try:
+            segments = load_transcript_segments(args.transcript_json)
+        except (OSError, TranscriptValidationError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(f"ok ({len(segments)} segments)")
         return 0
     if args.command == "validate":
         errors = validate_timeline(read_json(args.timeline))
@@ -141,6 +159,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(error, file=sys.stderr)
             return 1
         print("ok")
+        return 0
+    if args.command == "demo-fixtures":
+        paths = make_demo_fixtures(args.out)
+        for kind, path in paths.items():
+            print(f"{kind}: {path}")
         return 0
     parser.error("unreachable")
     return 2

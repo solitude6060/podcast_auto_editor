@@ -2,7 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import podcast_auto_editor.cli as cli
 from podcast_auto_editor.cli import main
+from podcast_auto_editor.transcript import load_transcript_segments
 from podcast_auto_editor.timeline import create_noop_timeline, write_json
 
 
@@ -85,3 +87,30 @@ def test_review_accept_cli_requires_explicit_operation_ids(tmp_path, capsys):
 
     assert main(["review-accept", str(src), "--reviewer", "producer", "--out", str(out)]) == 1
     assert "requires at least one --operation-id" in capsys.readouterr().err
+
+
+def test_load_transcript_segments_accepts_legacy_lists(tmp_path):
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps([{"start": 0.0, "end": 0.5, "text": "hello"}]))
+    assert load_transcript_segments(transcript_json) == [{"start": 0.0, "end": 0.5, "text": "hello"}]
+
+
+def test_load_transcript_segments_accepts_versioned_wrapper(tmp_path):
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps({"schema_version": "transcript.v1", "segments": [{"start": 0.0, "end": 0.5, "text": "hello"}]}))
+    assert load_transcript_segments(transcript_json) == [{"start": 0.0, "end": 0.5, "text": "hello"}]
+
+
+def test_transcript_import_validation_rejects_bad_shape(tmp_path, capsys, monkeypatch):
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"stub")
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps({"schema_version": "transcript.v1", "segments": [{"start": 0.0, "text": "missing end"}]}))
+
+    def fake_run_pipeline(*args, **kwargs):
+        raise AssertionError("run_pipeline should not be called for invalid transcript JSON")
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run_pipeline)
+
+    assert main(["run", str(input_path), "--out", str(tmp_path / "runs"), "--transcript-json", str(transcript_json)]) == 1
+    assert "segment[0] missing required field(s): end" in capsys.readouterr().err

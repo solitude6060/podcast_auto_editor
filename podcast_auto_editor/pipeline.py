@@ -164,9 +164,48 @@ def retake_operation_is_render_safe(operation: dict[str, Any]) -> bool:
     )
 
 
+def _preview_segment_metadata(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    for op in timeline.get("operations", []):
+        source_range = op.get("source_range") or {}
+        if "start" not in source_range or "end" not in source_range:
+            continue
+        start = float(source_range["start"])
+        end = float(source_range["end"])
+        segments.append(
+            {
+                "operation_id": op.get("operation_id"),
+                "operation_type": op.get("type"),
+                "state": op.get("state"),
+                "source_start": start,
+                "source_end": end,
+                "duration": max(0.0, end - start),
+                "risk": op.get("risk"),
+                "confidence": op.get("confidence"),
+            }
+        )
+    return segments
+
+
 def write_preview(paths: RunPaths, input_path: str | Path, timeline: dict[str, Any]) -> None:
     ensure_run_dirs(paths)
-    paths.waveform.write_text(json.dumps({"operations": timeline.get("operations", []), "type": "timeline-preview"}, indent=2) + "\n")
+    preview_segments = _preview_segment_metadata(timeline)
+    paths.waveform.write_text(
+        json.dumps(
+            {
+                "type": "timeline-preview",
+                "operations": timeline.get("operations", []),
+                "removed_segments_preview": {
+                    "path": str(paths.removed_segments_preview),
+                    "segment_count": len(preview_segments),
+                    "total_duration": sum(segment["duration"] for segment in preview_segments),
+                    "segments": preview_segments,
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     if not Path(input_path).exists():
         raise MediaToolError(f"input media does not exist: {input_path}")
     # Real preview artifact: short transcoded preview of the source media.

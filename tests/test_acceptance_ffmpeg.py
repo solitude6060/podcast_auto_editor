@@ -42,6 +42,9 @@ def test_full_audio_run_creates_real_artifacts_and_quality_report(tmp_path):
     accepted = json.loads(paths.accepted_timeline.read_text())
     proposed = json.loads(paths.proposed_timeline.read_text())
     assert paths.before_after_preview.exists() and paths.before_after_preview.stat().st_size > 0
+    assert paths.removed_segments_preview.exists() and paths.removed_segments_preview.stat().st_size > 0
+    assert paths.waveform.exists()
+    assert paths.human_summary.exists()
     assert paths.edited_wav.exists() and paths.edited_wav.stat().st_size > 0
     assert paths.recovery_map.exists()
     assert paths.subtitles_srt.exists() and paths.subtitles_vtt.exists() and paths.chapters.exists()
