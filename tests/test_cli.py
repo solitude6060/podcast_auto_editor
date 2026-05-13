@@ -149,3 +149,61 @@ def test_transcript_import_validation_rejects_bad_shape(tmp_path, capsys, monkey
 
     assert main(["run", str(input_path), "--out", str(tmp_path / "runs"), "--transcript-json", str(transcript_json)]) == 1
     assert "segment[0] missing required field(s): end" in capsys.readouterr().err
+
+
+def test_dry_run_cli_writes_inspection_artifacts_without_media_exports(tmp_path, monkeypatch):
+    def fake_probe(input_path, paths, config):
+        timeline = create_noop_timeline({"path": str(input_path), "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+        write_json(paths.proposed_timeline, timeline)
+        return timeline
+
+    def fake_analyze(input_path, timeline, config):
+        proposed = dict(timeline)
+        proposed["operations"] = [{
+            "operation_id": "cut1",
+            "type": "silence_cut",
+            "source_range": {"start": 1.0, "end": 2.0},
+            "output_range": None,
+            "affected_tracks": ["audio:0"],
+            "state": "proposed",
+            "risk": "deterministic",
+            "confidence": 1.0,
+            "provenance": {},
+            "preview_ref": None,
+            "diff_ref": None,
+            "recovery_ref": None,
+        }]
+        return proposed
+
+    monkeypatch.setattr(cli, "probe", fake_probe)
+    monkeypatch.setattr(cli, "analyze", fake_analyze)
+    monkeypatch.setattr(cli, "write_preview", lambda paths, input_path, timeline: paths.waveform.write_text(json.dumps({"type": "timeline-preview"})))
+
+    assert main(["dry-run", str(tmp_path / "input.wav"), "--out", str(tmp_path / "runs"), "--episode-id", "ep1"]) == 0
+
+    root = tmp_path / "runs" / "ep1"
+    assert (root / "timeline.proposed.v1.json").exists()
+    assert (root / "timeline.accepted.v1.json").exists()
+    assert (root / "diff" / "timeline-diff.json").exists()
+    assert (root / "recovery" / "recovery-map.json").exists()
+    assert (root / "exports" / "transcript.json").exists()
+    assert not (root / "exports" / "episode.edited.wav").exists()
+
+
+def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
+    root = tmp_path / "runs" / "ep1"
+    (root / "diff").mkdir(parents=True)
+    (root / "exports").mkdir()
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({"export_metadata": {"derived_assets": {"cue_errors": ["late cue"]}}}))
+    (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 2, "accepted_count": 1, "rejected_count": 1, "total_removed_duration": 1.5}))
+    (root / "exports" / "transcript.json").write_text("{}")
+
+    assert main(["report", str(root), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation_counts"]["accepted"] == 1
+    assert payload["warnings"] == ["late cue"]
+
+    assert main(["report", str(root), "--format", "markdown"]) == 0
+    out = capsys.readouterr().out
+    assert "# Podcast Auto Editor Report" in out
+    assert "Accepted edits: 1" in out

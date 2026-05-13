@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
-from .artifacts import run_paths, write_diff_artifacts, write_recovery_artifacts
-from .config import load_config
+from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
+from .config import config_to_dict, load_config
 from .fixtures import make_demo_fixtures
-from .pipeline import add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
+from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
@@ -63,6 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--episode-id")
     p_run.add_argument("--transcript-json", help="Optional transcript JSON: either a segment array or an object with a segments array")
 
+    p_dry_run = sub.add_parser("dry-run", help="Write inspection artifacts without rendering edited media exports")
+    p_dry_run.add_argument("input")
+    p_dry_run.add_argument("--out", default="runs")
+    p_dry_run.add_argument("--episode-id")
+    p_dry_run.add_argument("--transcript-json", help="Optional transcript JSON: either a segment array or an object with a segments array")
+
+    p_report = sub.add_parser("report", help="Summarize a run directory")
+    p_report.add_argument("run_dir")
+    p_report.add_argument("--format", choices=("json", "markdown"), default="markdown")
+
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
 
@@ -72,6 +84,61 @@ def build_parser() -> argparse.ArgumentParser:
     p_demo = sub.add_parser("demo-fixtures", help="Generate deterministic demo media fixtures with ffmpeg when available")
     p_demo.add_argument("--out", default="demo-fixtures")
     return parser
+
+
+def _load_optional_transcript(path: str | None) -> list[dict] | None:
+    if not path:
+        return None
+    return load_transcript_segments(path)
+
+
+def _build_run_report(run_dir: str | Path) -> dict:
+    root = Path(run_dir)
+    diff = read_json(root / "diff" / "timeline-diff.json") if (root / "diff" / "timeline-diff.json").exists() else {}
+    accepted = read_json(root / "timeline.accepted.v1.json") if (root / "timeline.accepted.v1.json").exists() else {}
+    derived = accepted.get("export_metadata", {}).get("derived_assets", {})
+    quality = accepted.get("export_metadata", {}).get("quality_gate_report")
+    warnings = []
+    for key in ("cue_errors", "chapter_errors"):
+        warnings.extend(derived.get(key, []) or [])
+    return {
+        "run_dir": str(root),
+        "operation_counts": {
+            "proposed": diff.get("proposed_count", 0),
+            "accepted": diff.get("accepted_count", 0),
+            "rejected": diff.get("rejected_count", 0),
+        },
+        "total_removed_duration": diff.get("total_removed_duration", 0.0),
+        "quality_gate": quality,
+        "derived_assets": {key: value for key, value in derived.items() if key not in {"cue_errors", "chapter_errors"}},
+        "warnings": warnings,
+    }
+
+
+def _format_run_report_markdown(report: dict) -> str:
+    counts = report["operation_counts"]
+    lines = [
+        "# Podcast Auto Editor Report",
+        "",
+        f"Run directory: {report['run_dir']}",
+        "",
+        "## Edits",
+        "",
+        f"- Proposed edits: {counts['proposed']}",
+        f"- Accepted edits: {counts['accepted']}",
+        f"- Rejected edits: {counts['rejected']}",
+        f"- Total removed duration: {float(report['total_removed_duration']):.3f}s",
+        "",
+        "## Quality",
+        "",
+        f"- Quality gate: {report['quality_gate'].get('passed') if isinstance(report.get('quality_gate'), dict) else 'not measured'}",
+        "",
+        "## Warnings",
+        "",
+    ]
+    warnings = report.get("warnings") or []
+    lines.extend(f"- {warning}" for warning in warnings) if warnings else lines.append("- none")
+    return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,7 +200,6 @@ def main(argv: list[str] | None = None) -> int:
             print("render requires an accepted timeline; run accept first or pass --accept-safe-defaults for deterministic silence only", file=sys.stderr)
             return 1
         if args.accept_safe_defaults:
-            from .pipeline import accept_safe_defaults
             timeline = accept_safe_defaults(timeline)
         unsafe_retakes = [op for op in timeline.get("operations", []) if op.get("state") == "accepted" and not retake_operation_is_render_safe(op)]
         if unsafe_retakes:
@@ -153,12 +219,42 @@ def main(argv: list[str] | None = None) -> int:
         transcript_segments = None
         if args.transcript_json:
             try:
-                transcript_segments = load_transcript_segments(args.transcript_json)
+                transcript_segments = _load_optional_transcript(args.transcript_json)
             except (OSError, TranscriptValidationError) as exc:
                 print(str(exc), file=sys.stderr)
                 return 1
         paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments)
         print(paths.root)
+        return 0
+    if args.command == "dry-run":
+        try:
+            transcript_segments = _load_optional_transcript(args.transcript_json)
+        except (OSError, TranscriptValidationError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        episode_id = args.episode_id or episode_id_from_path(args.input)
+        paths = run_paths(args.out, episode_id)
+        timeline = probe(args.input, paths, config)
+        proposed = analyze(args.input, timeline, config)
+        if transcript_segments:
+            proposed = add_retake_proposals(proposed, transcript_segments, config, artifacts_exist=False)
+        write_json(paths.proposed_timeline, proposed)
+        ensure_run_dirs(paths)
+        write_preview(paths, args.input, proposed)
+        accepted = accept_safe_defaults(proposed)
+        write_diff_artifacts(paths, proposed, accepted)
+        write_recovery_artifacts(paths, accepted)
+        accepted = transcribe_and_write(paths, accepted, cues=transcript_segments or [])
+        write_json(paths.accepted_timeline, accepted)
+        write_manifest(paths, {"input": str(args.input), "episode_id": episode_id, "dry_run": True, "artifacts": {"accepted_timeline": str(paths.accepted_timeline), "transcript": str(paths.transcript)}, "config": config_to_dict(config)})
+        print(paths.root)
+        return 0
+    if args.command == "report":
+        report = _build_run_report(args.run_dir)
+        if args.format == "json":
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            print(_format_run_report_markdown(report), end="")
         return 0
     if args.command == "validate-transcript":
         try:

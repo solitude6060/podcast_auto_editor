@@ -10,6 +10,8 @@ The project uses a canonical reversible `timeline.v1` before media mutation. It 
 python -m podcast_auto_editor probe input.wav --out runs
 python -m podcast_auto_editor run input.wav --out runs
 python -m podcast_auto_editor validate-transcript transcript.json
+python -m podcast_auto_editor dry-run input.wav --out runs
+python -m podcast_auto_editor report runs/input --format markdown
 python -m podcast_auto_editor demo-fixtures --out demo-fixtures
 ```
 
@@ -56,3 +58,7 @@ Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When acc
 Each cue must include numeric `start` and `end` fields plus string `text`. Invalid shapes fail fast before the pipeline starts, so transcript import errors are reported clearly instead of surfacing later as media or retake errors.
 
 Timeline and config validation also fail fast: operation confidence must be 0–1, affected track IDs must exist, cut ranges must stay within media duration, accepted cuts may not overlap, and quality/retake settings must stay within supported bounds.
+
+## Dry-run and reports
+
+Use `dry-run` to create inspectable timeline, diff, recovery, preview metadata, transcript, subtitle, chapter, and manifest artifacts without rendering edited audio/video exports. Use `report` to summarize a run directory as Markdown or JSON before committing to a render.
