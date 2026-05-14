@@ -145,6 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_transcribe = sub.add_parser("transcribe", help="Generate transcript JSON with a local provider")
     p_transcribe.add_argument("input")
     p_transcribe.add_argument("--provider", default="stub", help=f"Transcript provider (available: {', '.join(provider_names())})")
+    p_transcribe.add_argument("--model", help="Optional ASR model name or path for providers that need it")
+    p_transcribe.add_argument("--device", help="Optional ASR device, for example cuda or cpu")
+    p_transcribe.add_argument("--compute-type", help="Optional ASR compute type, for example float16 or int8_float16")
     p_transcribe.add_argument("--out", required=True)
 
     p_ai = sub.add_parser("ai", help="AI resource and adapter commands")
@@ -569,7 +572,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     if args.command == "transcribe":
         try:
-            transcript_path = transcribe_to_file(args.input, args.out, provider_name=args.provider)
+            options = {key: value for key, value in {"model": args.model, "device": args.device, "compute_type": args.compute_type}.items() if value is not None}
+            transcript_path = transcribe_to_file(args.input, args.out, provider_name=args.provider, **options)
         except ASRProviderError as exc:
             print(str(exc), file=sys.stderr)
             return 1
