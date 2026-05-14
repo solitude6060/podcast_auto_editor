@@ -12,6 +12,7 @@ The project uses a canonical reversible `timeline.v1` before media mutation. It 
 python -m podcast_auto_editor probe input.wav --out runs
 python -m podcast_auto_editor run input.wav --out runs
 python -m podcast_auto_editor validate-transcript transcript.json
+python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
 python -m podcast_auto_editor dry-run input.wav --out runs
 python -m podcast_auto_editor report runs/input --format markdown
 python -m podcast_auto_editor project init my-show --name "My Show"
@@ -53,6 +54,14 @@ Use `--all` only when intentionally restoring every currently accepted operation
 Transcript, SRT, VTT, and chapter outputs use edited-output timestamps. When accepted cuts remove source ranges, supplied transcript cues are remapped through the timeline recovery map before assets are written.
 
 ## Transcript import
+
+Use `transcribe` to generate a `transcript.v1` JSON file through a local provider boundary:
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
+```
+
+The built-in `stub` provider is deterministic and dependency-free for tests and workflow integration. Real ASR providers should be added later as optional adapters; provider output is validated before any transcript file is written.
 
 `run --transcript-json` accepts either:
 
