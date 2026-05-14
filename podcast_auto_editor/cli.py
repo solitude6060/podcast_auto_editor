@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import config_to_dict, load_config
@@ -145,6 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_transcribe.add_argument("input")
     p_transcribe.add_argument("--provider", default="stub", help=f"Transcript provider (available: {', '.join(provider_names())})")
     p_transcribe.add_argument("--out", required=True)
+
+    p_ai = sub.add_parser("ai", help="AI resource and adapter commands")
+    ai_sub = p_ai.add_subparsers(dest="ai_command", required=True)
+    p_ai_resources = ai_sub.add_parser("resources", help="Show local-first AI resource profiles")
+    p_ai_resources.add_argument("--profile")
+    p_ai_resources.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
@@ -545,6 +552,21 @@ def main(argv: list[str] | None = None) -> int:
             report_json, _ = write_batch_reports(args.out, report)
             print(report_json)
             return 1 if report["summary"]["failed"] else 0
+    if args.command == "ai":
+        if args.ai_command == "resources":
+            try:
+                if args.profile:
+                    payload = {"default_profile": "rtx4090-local", "profiles": [get_ai_resource_profile(args.profile)]}
+                else:
+                    payload = list_ai_resource_profiles()
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            if args.format == "json":
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print(format_ai_resource_profiles_markdown(payload))
+            return 0
     if args.command == "transcribe":
         try:
             transcript_path = transcribe_to_file(args.input, args.out, provider_name=args.provider)

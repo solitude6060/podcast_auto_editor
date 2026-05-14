@@ -113,3 +113,14 @@ uv run python -m podcast_auto_editor review launcher runs/episode --out runs/epi
 
 `review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
 `review launcher` 會產生本機啟動檔，啟動同一個 localhost-only review server；這些 launcher 是本機 artifacts，不應提交進版控。
+
+## AI 資源 profiles
+
+預設 AI 規劃是單張 RTX 4090 的本機優先路徑：
+
+```bash
+uv run python -m podcast_auto_editor ai resources --format markdown
+uv run python -m podcast_auto_editor ai resources --profile rtx4090-local --format json
+```
+
+`rtx4090-local` 是預設 profile，用於本機 ASR、本機 LLM reasoning 與 deterministic audio analysis。`minimax-fallback` 只記錄為明確指定時才使用的非本機備援；它需要 `MINIMAX_API_KEY`，且不會被隱式啟用。
