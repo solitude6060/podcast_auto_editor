@@ -38,8 +38,44 @@ class StubTranscriptProvider:
         }
 
 
+class FasterWhisperLocalProvider:
+    name = "faster-whisper-local"
+
+    def transcribe(self, input_path: str | Path, **options: Any) -> dict[str, Any]:
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise ASRProviderError(
+                "faster-whisper-local requires optional package faster-whisper; "
+                "install it in your local RTX 4090 environment before selecting this provider"
+            ) from exc
+        model_name = str(options.get("model") or "large-v3")
+        device = str(options.get("device") or "cuda")
+        compute_type = str(options.get("compute_type") or "float16")
+        beam_size = int(options.get("beam_size") or 5)
+        model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        segments, _info = model.transcribe(str(input_path), beam_size=beam_size)
+        return {
+            "schema_version": "transcript.v1",
+            "provider": self.name,
+            "source_media": str(input_path),
+            "model": model_name,
+            "device": device,
+            "compute_type": compute_type,
+            "segments": [
+                {
+                    "start": float(segment.start),
+                    "end": float(segment.end),
+                    "text": str(segment.text).strip(),
+                }
+                for segment in segments
+            ],
+        }
+
+
 PROVIDERS: dict[str, type[TranscriptProvider]] = {
     StubTranscriptProvider.name: StubTranscriptProvider,
+    FasterWhisperLocalProvider.name: FasterWhisperLocalProvider,
 }
 
 
