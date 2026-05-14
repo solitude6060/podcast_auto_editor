@@ -146,3 +146,18 @@ uv run python -m podcast_auto_editor ai resources --profile rtx4090-local --form
 ```
 
 `rtx4090-local` is the default profile for local ASR, local LLM reasoning, and deterministic audio analysis. `minimax-fallback` is documented as an explicit non-local fallback only; it requires `MINIMAX_API_KEY` and is never enabled implicitly.
+
+### Optional faster-whisper local ASR
+
+For the RTX 4090 profile, install optional ASR dependencies in your local environment and select `faster-whisper-local` explicitly:
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider faster-whisper-local \
+  --model large-v3 \
+  --device cuda \
+  --compute-type float16 \
+  --out transcript.json
+```
+
+`faster-whisper-local` is not a core dependency. If `faster_whisper` is not installed, the command fails before writing `transcript.json`. The deterministic `stub` provider remains the default for tests and dependency-free smoke checks.
