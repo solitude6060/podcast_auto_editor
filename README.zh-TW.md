@@ -19,6 +19,8 @@ uv run python -m podcast_auto_editor probe input.wav --out runs
 uv run python -m podcast_auto_editor run input.wav --out runs
 uv run python -m podcast_auto_editor report runs/input --format markdown
 uv run python -m podcast_auto_editor html-report runs/input --out runs/input/report.html
+uv run python -m podcast_auto_editor project init my-show --name "My Show"
+uv run python -m podcast_auto_editor batch dry-run ep1.wav ep2.wav --out runs
 ```
 
 如果有安裝 FFmpeg / ffprobe，工具會進行真實媒體 probe、preview 與 render。純 timeline、review、report、validation 邏輯只使用 Python 標準庫與測試套件。
@@ -61,6 +63,22 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 ```
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
+
+## 專案與批次 dry-run
+
+用 `project init` 建立 `.omx` 之外的本機專案 manifest：
+
+```bash
+uv run python -m podcast_auto_editor project init my-show --name "My Show"
+```
+
+用 `batch dry-run` 檢查多集節目，但不輸出 edited media exports：
+
+```bash
+uv run python -m podcast_auto_editor batch dry-run ep1.wav ep2.wav --out runs
+```
+
+指令會輸出 `runs/batch/batch-report.json` 與 `runs/batch/batch-report.md`。單集失敗時預設會記錄錯誤並繼續處理後續集數；若需要第一個失敗就停止，可加上 `--fail-fast`。
 
 ## 開發驗證
 

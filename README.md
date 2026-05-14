@@ -14,6 +14,8 @@ python -m podcast_auto_editor run input.wav --out runs
 python -m podcast_auto_editor validate-transcript transcript.json
 python -m podcast_auto_editor dry-run input.wav --out runs
 python -m podcast_auto_editor report runs/input --format markdown
+python -m podcast_auto_editor project init my-show --name "My Show"
+python -m podcast_auto_editor batch dry-run ep1.wav ep2.wav --out runs
 python -m podcast_auto_editor demo-fixtures --out demo-fixtures
 ```
 
@@ -72,6 +74,22 @@ Render exits with a clear quality-gate failure when loudness, true peak, clippin
 Speech cleanup heuristics can propose filler or false-start removals as `speech_cut` operations, but these speech-changing edits stay proposed until explicitly accepted with `review-accept`.
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
+
+## Project and batch dry-run workflow
+
+Use `project init` to create a local project manifest outside `.omx`:
+
+```bash
+uv run python -m podcast_auto_editor project init my-show --name "My Show"
+```
+
+Use `batch dry-run` to inspect multiple episodes without rendering edited media exports:
+
+```bash
+uv run python -m podcast_auto_editor batch dry-run ep1.wav ep2.wav --out runs
+```
+
+The command writes aggregate reports to `runs/batch/batch-report.json` and `runs/batch/batch-report.md`. Failed episodes are recorded and later episodes continue by default; pass `--fail-fast` to stop after the first failure.
 
 ## Development verification
 
