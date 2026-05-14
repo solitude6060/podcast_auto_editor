@@ -135,3 +135,14 @@ uv run python -m podcast_auto_editor review launcher runs/episode --out runs/epi
 
 `review serve` binds to `127.0.0.1` by default and writes decisions to the same `review-session.json` used by the CLI.
 `review launcher` writes local launcher files that start the same localhost-only review server; generated launchers are local artifacts and should not be committed.
+
+## AI resource profiles
+
+The default AI plan is local-first for a single RTX 4090 workstation:
+
+```bash
+uv run python -m podcast_auto_editor ai resources --format markdown
+uv run python -m podcast_auto_editor ai resources --profile rtx4090-local --format json
+```
+
+`rtx4090-local` is the default profile for local ASR, local LLM reasoning, and deterministic audio analysis. `minimax-fallback` is documented as an explicit non-local fallback only; it requires `MINIMAX_API_KEY` and is never enabled implicitly.
