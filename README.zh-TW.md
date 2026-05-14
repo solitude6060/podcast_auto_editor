@@ -108,6 +108,8 @@ GitHub Actions 會跑同一組 uv 測試與 compileall。`.omx/`、`.venv/`、ru
 ```bash
 uv run python -m podcast_auto_editor review next runs/episode/review-session.json   --timeline runs/episode/timeline.proposed.v1.json
 uv run python -m podcast_auto_editor review serve runs/episode
+uv run python -m podcast_auto_editor review launcher runs/episode --out runs/episode/open-review-ui.sh --desktop-out runs/episode/open-review-ui.desktop
 ```
 
 `review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
+`review launcher` 會產生本機啟動檔，啟動同一個 localhost-only review server；這些 launcher 是本機 artifacts，不應提交進版控。

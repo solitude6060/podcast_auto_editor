@@ -12,7 +12,7 @@ from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .html_report import build_html_report, write_html_report
-from .local_review_server import serve_review_app, validate_review_host
+from .local_review_server import serve_review_app, validate_review_host, write_review_launcher
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
@@ -116,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_review_serve.add_argument("run_dir")
     p_review_serve.add_argument("--host", default="127.0.0.1")
     p_review_serve.add_argument("--port", type=int, default=8765)
+    p_review_launcher = review_sub.add_parser("launcher", help="Write a local launcher for the review UI")
+    p_review_launcher.add_argument("run_dir")
+    p_review_launcher.add_argument("--out", required=True)
+    p_review_launcher.add_argument("--desktop-out")
+    p_review_launcher.add_argument("--host", default="127.0.0.1")
+    p_review_launcher.add_argument("--port", type=int, default=8765)
 
     p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
     p_explain.add_argument("timeline")
@@ -499,6 +505,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(str(exc), file=sys.stderr)
                 return 1
             serve_review_app(args.run_dir, host=args.host, port=args.port)
+            return 0
+        if args.review_command == "launcher":
+            try:
+                result = write_review_launcher(args.run_dir, args.out, desktop_out=args.desktop_out, host=args.host, port=args.port)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(result["script"])
             return 0
     if args.command == "explain":
         try:

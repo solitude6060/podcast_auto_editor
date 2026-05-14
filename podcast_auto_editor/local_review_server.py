@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import shlex
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -135,6 +136,57 @@ def build_review_app_html(run_dir: str | Path) -> str:
 </body>
 </html>
 """
+
+
+def build_launcher_script(run_dir: str | Path, host: str = "127.0.0.1", port: int = 8765) -> str:
+    host = validate_review_host(host)
+    return "\n".join(
+        [
+            "#!/usr/bin/env sh",
+            "set -eu",
+            f"exec python -m podcast_auto_editor review serve {shlex.quote(str(run_dir))} --host {shlex.quote(host)} --port {int(port)}",
+            "",
+        ]
+    )
+
+
+def _desktop_value(value: object) -> str:
+    return str(value).replace("\n", " ").replace("\r", " ")
+
+
+def build_linux_desktop_entry(script_path: str | Path, name: str = "Podcast Auto Editor Review") -> str:
+    return "\n".join(
+        [
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={_desktop_value(name)}",
+            f"Exec={_desktop_value(script_path)}",
+            "Terminal=false",
+            "Categories=AudioVideo;",
+            "",
+        ]
+    )
+
+
+def write_review_launcher(
+    run_dir: str | Path,
+    out: str | Path,
+    *,
+    desktop_out: str | Path | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    name: str = "Podcast Auto Editor Review",
+) -> dict[str, Path | None]:
+    script = build_launcher_script(run_dir, host=host, port=port)
+    out_path = Path(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(script, encoding="utf-8")
+    out_path.chmod(out_path.stat().st_mode | 0o755)
+    desktop_path = Path(desktop_out) if desktop_out else None
+    if desktop_path:
+        desktop_path.parent.mkdir(parents=True, exist_ok=True)
+        desktop_path.write_text(build_linux_desktop_entry(out_path, name=name), encoding="utf-8")
+    return {"script": out_path, "desktop": desktop_path}
 
 
 class ReviewRequestHandler(BaseHTTPRequestHandler):

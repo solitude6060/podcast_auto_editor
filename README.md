@@ -130,6 +130,8 @@ After generating a run directory, use the scriptable review helper or local-only
 ```bash
 uv run python -m podcast_auto_editor review next runs/episode/review-session.json   --timeline runs/episode/timeline.proposed.v1.json
 uv run python -m podcast_auto_editor review serve runs/episode
+uv run python -m podcast_auto_editor review launcher runs/episode --out runs/episode/open-review-ui.sh --desktop-out runs/episode/open-review-ui.desktop
 ```
 
 `review serve` binds to `127.0.0.1` by default and writes decisions to the same `review-session.json` used by the CLI.
+`review launcher` writes local launcher files that start the same localhost-only review server; generated launchers are local artifacts and should not be committed.
