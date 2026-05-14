@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
@@ -133,6 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_dry_run.add_argument("inputs", nargs="+")
     p_batch_dry_run.add_argument("--out", default="runs")
     p_batch_dry_run.add_argument("--fail-fast", action="store_true")
+
+    p_transcribe = sub.add_parser("transcribe", help="Generate transcript JSON with a local provider")
+    p_transcribe.add_argument("input")
+    p_transcribe.add_argument("--provider", default="stub", help=f"Transcript provider (available: {', '.join(provider_names())})")
+    p_transcribe.add_argument("--out", required=True)
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
@@ -525,6 +531,14 @@ def main(argv: list[str] | None = None) -> int:
             report_json, _ = write_batch_reports(args.out, report)
             print(report_json)
             return 1 if report["summary"]["failed"] else 0
+    if args.command == "transcribe":
+        try:
+            transcript_path = transcribe_to_file(args.input, args.out, provider_name=args.provider)
+        except ASRProviderError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(transcript_path)
+        return 0
     if args.command == "validate-transcript":
         try:
             segments = load_transcript_segments(args.transcript_json)

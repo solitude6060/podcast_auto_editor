@@ -17,6 +17,7 @@
 uv sync --group dev
 uv run python -m podcast_auto_editor probe input.wav --out runs
 uv run python -m podcast_auto_editor run input.wav --out runs
+uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
 uv run python -m podcast_auto_editor report runs/input --format markdown
 uv run python -m podcast_auto_editor html-report runs/input --out runs/input/report.html
 uv run python -m podcast_auto_editor project init my-show --name "My Show"
@@ -51,6 +52,16 @@ uv run python -m podcast_auto_editor review rebuild runs/episode/review-session.
   --timeline runs/episode/timeline.proposed.v1.json \
   --out runs/episode/timeline.accepted.v1.json
 ```
+
+## Transcript 產生與匯入
+
+可以用 `transcribe` 透過本機 provider 邊界產生 `transcript.v1` JSON：
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
+```
+
+內建的 `stub` provider 是 deterministic、無額外依賴，主要用於測試與流程串接。未來真實 ASR provider 應以 optional adapter 方式加入；provider 輸出會先通過 transcript validation，才會寫入檔案。
 
 ## 報告與介面
 
