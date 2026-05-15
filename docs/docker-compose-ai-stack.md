@@ -39,6 +39,27 @@ docker compose --profile ai exec app \
   uv run python -m podcast_auto_editor ai resources --format markdown
 ```
 
+Run a lightweight AI environment doctor:
+
+```bash
+docker compose --profile ai exec app \
+  uv run python -m podcast_auto_editor ai doctor --optional-whisper --format markdown
+```
+
+When another project is using the GPU, avoid heavy probes:
+
+```bash
+uv run python -m podcast_auto_editor ai doctor --no-ollama --optional-whisper
+```
+
+Model downloads are intentionally manual. Pull small smoke models first and schedule large model pulls/runs for a maintenance window:
+
+```bash
+docker compose --profile ai exec ollama ollama pull qwen3:0.6b
+# Later, when GPU memory is available:
+# docker compose --profile ai exec ollama ollama pull qwen3:32b
+```
+
 ## Optional local ASR mounts
 
 `whisper-cpp-local` expects a user-managed `whisper.cpp` binary and GGML model. Mount them through `.env`:
