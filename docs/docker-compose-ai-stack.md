@@ -55,6 +55,7 @@ uv run python -m podcast_auto_editor ai doctor --no-ollama --optional-whisper
 Model downloads are intentionally manual. Pull small smoke models first and schedule large model pulls/runs for a maintenance window:
 
 ```bash
+uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
 docker compose --profile ai exec ollama ollama pull qwen3:0.6b
 # Later, when GPU memory is available:
 # docker compose --profile ai exec ollama ollama pull qwen3:32b

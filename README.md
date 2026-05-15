@@ -210,3 +210,10 @@ docker compose --profile ai exec app uv run python -m podcast_auto_editor ai doc
 ```
 
 If another project is using the GPU, keep checks lightweight: use `--no-ollama` to skip the live Ollama probe, pull models manually only during an agreed maintenance window, and prefer smaller smoke models before loading 30B-class local LLMs.
+
+Inspect the local model catalog and print manual pull commands without executing downloads:
+
+```bash
+uv run python -m podcast_auto_editor ai models --format markdown
+uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
+```

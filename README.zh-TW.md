@@ -147,6 +147,13 @@ docker compose --profile ai exec app uv run python -m podcast_auto_editor ai doc
 
 如果目前有其他專案正在使用 GPU，請維持檢查輕量：用 `--no-ollama` 跳過 live Ollama probe；模型下載改在確認的維護時段手動進行；正式載入 30B 等級本機 LLM 前，先用較小 smoke model 測試。
 
+檢視本機模型目錄並列出手動 pull 指令；這不會執行下載：
+
+```bash
+uv run python -m podcast_auto_editor ai models --format markdown
+uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
+```
+
 ## AI 資源 profiles
 
 預設 AI 規劃是單張 RTX 4090 的本機優先路徑：
