@@ -13,6 +13,7 @@ def test_rtx4090_local_profile_is_default_and_local():
     assert profile["hardware"]["gpu"] == "NVIDIA RTX 4090"
     assert profile["hardware"]["vram_gb"] == 24
     assert profile["roles"]["asr"]["primary"] == "faster-whisper-large-v3"
+    assert profile["roles"]["asr"]["fallback"] == "whisper-cpp-local-large-v3-q5_0"
     assert profile["roles"]["llm"]["primary"] == "qwen3-32b-q4"
 
 

@@ -177,3 +177,137 @@ def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
 
     assert captured["provider_name"] == "faster-whisper-local"
     assert captured["options"] == {"model": "large-v3", "device": "cuda", "compute_type": "float16"}
+
+
+def test_provider_names_include_optional_whisper_cpp():
+    from podcast_auto_editor.asr import provider_names
+
+    assert "whisper-cpp-local" in provider_names()
+
+
+def test_whisper_cpp_provider_requires_binary_and_model_without_writing(tmp_path):
+    import sys
+
+    out = tmp_path / "transcript.json"
+
+    try:
+        transcribe_to_file(tmp_path / "episode.wav", out, provider_name="whisper-cpp-local")
+    except ASRProviderError as exc:
+        assert "whisper-cpp-local requires --binary" in str(exc)
+    else:
+        raise AssertionError("expected missing binary error")
+
+    try:
+        transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="whisper-cpp-local",
+            binary=str(Path(sys.executable)),
+        )
+    except ASRProviderError as exc:
+        assert "whisper-cpp-local requires --model-path" in str(exc)
+    else:
+        raise AssertionError("expected missing model error")
+
+    assert not out.exists()
+
+
+def test_whisper_cpp_provider_parses_json_segments(tmp_path):
+    binary = tmp_path / "fake-whisper-cli.py"
+    model = tmp_path / "ggml-large-v3-q5_0.bin"
+    output = tmp_path / "transcript.json"
+    model.write_text("model")
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, pathlib, sys\n"
+        "prefix = sys.argv[sys.argv.index('-of') + 1]\n"
+        "pathlib.Path(prefix + '.json').write_text(json.dumps({\n"
+        "    'transcription': [\n"
+        "        {'offsets': {'from': 250, 'to': 1500}, 'text': ' hello world '},\n"
+        "    ]\n"
+        "}))\n"
+    )
+    binary.chmod(0o755)
+
+    transcribe_to_file(
+        tmp_path / "episode.wav",
+        output,
+        provider_name="whisper-cpp-local",
+        binary=str(binary),
+        model_path=str(model),
+        language="en",
+        threads=4,
+    )
+
+    data = json.loads(output.read_text())
+    assert data["provider"] == "whisper-cpp-local"
+    assert data["segments"] == [{"start": 0.25, "end": 1.5, "text": "hello world"}]
+
+
+def test_whisper_cpp_provider_rejects_invalid_json_without_writing(tmp_path):
+    binary = tmp_path / "fake-whisper-cli.py"
+    model = tmp_path / "ggml-large-v3-q5_0.bin"
+    output = tmp_path / "transcript.json"
+    model.write_text("model")
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "prefix = sys.argv[sys.argv.index('-of') + 1]\n"
+        "pathlib.Path(prefix + '.json').write_text('{not json')\n"
+    )
+    binary.chmod(0o755)
+
+    try:
+        transcribe_to_file(
+            tmp_path / "episode.wav",
+            output,
+            provider_name="whisper-cpp-local",
+            binary=str(binary),
+            model_path=str(model),
+        )
+    except ASRProviderError as exc:
+        assert "invalid whisper.cpp JSON output" in str(exc)
+    else:
+        raise AssertionError("expected invalid JSON error")
+
+    assert not output.exists()
+
+
+def test_transcribe_cli_passes_whisper_cpp_options(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_transcribe_to_file(input_path, out_path, provider_name="stub", **options):
+        captured["input_path"] = str(input_path)
+        captured["out_path"] = str(out_path)
+        captured["provider_name"] = provider_name
+        captured["options"] = options
+        Path(out_path).write_text(json.dumps({"schema_version": "transcript.v1", "segments": [{"start": 0.0, "end": 1.0, "text": "ok"}]}))
+        return Path(out_path)
+
+    monkeypatch.setattr(cli, "transcribe_to_file", fake_transcribe_to_file)
+    out = tmp_path / "transcript.json"
+
+    assert main([
+        "transcribe",
+        str(tmp_path / "episode.wav"),
+        "--provider",
+        "whisper-cpp-local",
+        "--binary",
+        "/opt/whisper.cpp/build/bin/whisper-cli",
+        "--model-path",
+        "/models/ggml-large-v3-q5_0.bin",
+        "--language",
+        "zh",
+        "--threads",
+        "8",
+        "--out",
+        str(out),
+    ]) == 0
+
+    assert captured["provider_name"] == "whisper-cpp-local"
+    assert captured["options"] == {
+        "binary": "/opt/whisper.cpp/build/bin/whisper-cli",
+        "model_path": "/models/ggml-large-v3-q5_0.bin",
+        "language": "zh",
+        "threads": 8,
+    }

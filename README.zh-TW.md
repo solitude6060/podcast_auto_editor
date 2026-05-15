@@ -139,3 +139,19 @@ uv run python -m podcast_auto_editor transcribe input.wav \
 ```
 
 `faster-whisper-local` 不是 core dependency。若沒有安裝 `faster_whisper`，指令會在寫入 `transcript.json` 前失敗。Deterministic `stub` provider 仍是測試與無依賴 smoke check 的預設。
+
+### Optional whisper.cpp 本機 ASR
+
+`whisper-cpp-local` 是較低 Python 依賴的本機備援 provider，適合自行管理 `whisper.cpp` build 與 GGML model 檔案的環境：
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider whisper-cpp-local \
+  --binary /path/to/whisper-cli \
+  --model-path /models/ggml-large-v3-q5_0.bin \
+  --language zh \
+  --threads 8 \
+  --out transcript.json
+```
+
+此 provider 必須明確提供本機 binary 與 model path，並以 JSON 輸出模式執行 `whisper.cpp`。若 binary/model 不存在、外部指令失敗、JSON 無效，或 transcript segment 不合法，會在寫入 `transcript.json` 前失敗。

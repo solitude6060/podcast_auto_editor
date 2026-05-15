@@ -148,6 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_transcribe.add_argument("--model", help="Optional ASR model name or path for providers that need it")
     p_transcribe.add_argument("--device", help="Optional ASR device, for example cuda or cpu")
     p_transcribe.add_argument("--compute-type", help="Optional ASR compute type, for example float16 or int8_float16")
+    p_transcribe.add_argument("--binary", help="Optional local ASR executable path, for example whisper.cpp whisper-cli")
+    p_transcribe.add_argument("--model-path", help="Optional local ASR model file path, for example ggml-large-v3-q5_0.bin")
+    p_transcribe.add_argument("--language", help="Optional ASR language code, for example zh or en")
+    p_transcribe.add_argument("--threads", type=int, help="Optional ASR thread count for local providers")
     p_transcribe.add_argument("--out", required=True)
 
     p_ai = sub.add_parser("ai", help="AI resource and adapter commands")
@@ -572,7 +576,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     if args.command == "transcribe":
         try:
-            options = {key: value for key, value in {"model": args.model, "device": args.device, "compute_type": args.compute_type}.items() if value is not None}
+            options = {
+                key: value
+                for key, value in {
+                    "model": args.model,
+                    "device": args.device,
+                    "compute_type": args.compute_type,
+                    "binary": args.binary,
+                    "model_path": args.model_path,
+                    "language": args.language,
+                    "threads": args.threads,
+                }.items()
+                if value is not None
+            }
             transcript_path = transcribe_to_file(args.input, args.out, provider_name=args.provider, **options)
         except ASRProviderError as exc:
             print(str(exc), file=sys.stderr)
