@@ -151,8 +151,13 @@ docker compose --profile ai exec app uv run python -m podcast_auto_editor ai doc
 
 ```bash
 uv run python -m podcast_auto_editor ai models --format markdown
+uv run python -m podcast_auto_editor ai models --tier api-local --pull-plan
 uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
+LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
+  uv run python -m podcast_auto_editor ai models --readiness --tier api-local --no-ollama
 ```
+
+`api-local` 是給既有 llama.cpp / OpenAI-compatible API 模型使用，例如 `qwen3.6-27b-turbo3`；它不會輸出下載指令，只會在 readiness 檢查時讀 `/v1/models`。
 
 ## AI 資源 profiles
 

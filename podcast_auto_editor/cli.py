@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
-from .ai_models import build_model_catalog, build_pull_plan, format_model_catalog_markdown, format_pull_plan_script
+from .ai_models import build_model_catalog, build_model_readiness_report, build_pull_plan, format_model_catalog_markdown, format_model_readiness_markdown, format_pull_plan_script
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
@@ -171,8 +171,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_ai_doctor.add_argument("--optional-whisper", action="store_true", help="Treat missing whisper.cpp paths as warnings")
     p_ai_doctor.add_argument("--format", choices=("json", "markdown"), default="markdown")
     p_ai_models = ai_sub.add_parser("models", help="Show local model catalog and manual pull plans")
-    p_ai_models.add_argument("--tier", default="all", choices=("all", "smoke", "recommended", "heavy-manual"))
+    p_ai_models.add_argument("--tier", default="all", choices=("all", "api-local", "smoke", "recommended", "heavy-manual"))
     p_ai_models.add_argument("--pull-plan", action="store_true", help="Print manual Ollama pull commands without executing them")
+    p_ai_models.add_argument("--readiness", action="store_true", help="Compare catalog models against installed API/Ollama model lists")
+    p_ai_models.add_argument("--ollama-url", default="http://127.0.0.1:11434")
+    p_ai_models.add_argument("--ollama-tags-json")
+    p_ai_models.add_argument("--no-ollama", action="store_true")
+    p_ai_models.add_argument("--openai-base-url")
+    p_ai_models.add_argument("--openai-models-json")
+    p_ai_models.add_argument("--no-openai-api", action="store_true")
+    p_ai_models.add_argument("--timeout", type=float, default=0.5)
     p_ai_models.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
@@ -623,6 +631,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_ai_doctor_markdown(report), end="")
             return 1 if report["overall_status"] == "missing" else 0
         if args.ai_command == "models":
+            if args.readiness:
+                report = build_model_readiness_report(
+                    tier=args.tier,
+                    tags_json=args.ollama_tags_json,
+                    openai_models_json=args.openai_models_json,
+                    ollama_url=args.ollama_url,
+                    openai_base_url=args.openai_base_url,
+                    timeout_s=args.timeout,
+                    check_ollama=not args.no_ollama,
+                    check_openai_api=not args.no_openai_api,
+                )
+                if args.format == "json":
+                    print(json.dumps(report, indent=2, ensure_ascii=False))
+                else:
+                    print(format_model_readiness_markdown(report), end="")
+                return 0
             if args.pull_plan:
                 plan = build_pull_plan(tier=args.tier if args.tier != "all" else "smoke")
                 if args.format == "json":
