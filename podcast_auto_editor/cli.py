@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
+from .ai_models import build_model_catalog, build_pull_plan, format_model_catalog_markdown, format_pull_plan_script
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
@@ -169,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_ai_doctor.add_argument("--whisper-model")
     p_ai_doctor.add_argument("--optional-whisper", action="store_true", help="Treat missing whisper.cpp paths as warnings")
     p_ai_doctor.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_ai_models = ai_sub.add_parser("models", help="Show local model catalog and manual pull plans")
+    p_ai_models.add_argument("--tier", default="all", choices=("all", "smoke", "recommended", "heavy-manual"))
+    p_ai_models.add_argument("--pull-plan", action="store_true", help="Print manual Ollama pull commands without executing them")
+    p_ai_models.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
@@ -617,6 +622,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_ai_doctor_markdown(report), end="")
             return 1 if report["overall_status"] == "missing" else 0
+        if args.ai_command == "models":
+            if args.pull_plan:
+                plan = build_pull_plan(tier=args.tier if args.tier != "all" else "smoke")
+                if args.format == "json":
+                    print(json.dumps(plan, indent=2, ensure_ascii=False))
+                else:
+                    print(format_pull_plan_script(plan), end="")
+                return 0
+            catalog = build_model_catalog(tier=args.tier)
+            if args.format == "json":
+                print(json.dumps(catalog, indent=2, ensure_ascii=False))
+            else:
+                print(format_model_catalog_markdown(catalog), end="")
+            return 0
     if args.command == "transcribe":
         try:
             options = {
