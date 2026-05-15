@@ -53,6 +53,7 @@ uv run python -m podcast_auto_editor ai doctor --no-ollama --optional-whisper
 模型下載刻意設計成手動操作。請先拉小型 smoke model，等 GPU 記憶體可用時再排程大型 model：
 
 ```bash
+uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
 docker compose --profile ai exec ollama ollama pull qwen3:0.6b
 # 之後 GPU 資源可用時：
 # docker compose --profile ai exec ollama ollama pull qwen3:32b
