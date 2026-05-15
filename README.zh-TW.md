@@ -18,6 +18,7 @@ uv sync --group dev
 uv run python -m podcast_auto_editor probe input.wav --out runs
 uv run python -m podcast_auto_editor run input.wav --out runs
 uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
+uv run python -m podcast_auto_editor validate-run --timeline runs/input/timeline.proposed.v1.json --transcript-json transcript.json
 uv run python -m podcast_auto_editor report runs/input --format markdown
 uv run python -m podcast_auto_editor html-report runs/input --out runs/input/report.html
 uv run python -m podcast_auto_editor project init my-show --name "My Show"
@@ -62,6 +63,17 @@ uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out 
 ```
 
 內建的 `stub` provider 是 deterministic、無額外依賴，主要用於測試與流程串接。未來真實 ASR provider 應以 optional adapter 方式加入；provider 輸出會先通過 transcript validation，才會寫入檔案。
+
+可用 `validate-run` 在媒體處理前做 read-only 預檢：
+
+```bash
+uv run python -m podcast_auto_editor validate-run \
+  --config config.json \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json transcript.json
+```
+
+如果 timeline media duration 或明確 `--duration` 可用，超出媒體長度的 transcript cue 會在寫任何 run artifact 前被拒絕。
 
 ## 報告與介面
 
@@ -113,6 +125,18 @@ uv run python -m podcast_auto_editor review launcher runs/episode --out runs/epi
 
 `review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
 `review launcher` 會產生本機啟動檔，啟動同一個 localhost-only review server；這些 launcher 是本機 artifacts，不應提交進版控。
+
+## Docker Compose 本機 AI stack
+
+若要容器化本機開發與可選 RTX 4090 AI service，請看 [`docs/docker-compose-ai-stack.zh-TW.md`](docs/docker-compose-ai-stack.zh-TW.md)：
+
+```bash
+cp .env.example .env
+docker compose --profile ai up -d ollama app
+docker compose --profile ai exec app uv run --group dev pytest -q -p no:cacheprovider
+```
+
+Compose stack 會讓 `ollama` 只綁定 localhost，使用 NVIDIA GPU reservation 給本機 AI service，並讓 model files、`.env`、generated runs 與 `.omx` 維持在版本控制之外。
 
 ## AI 資源 profiles
 

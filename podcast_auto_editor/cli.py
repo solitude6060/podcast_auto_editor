@@ -8,7 +8,7 @@ from pathlib import Path
 from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
-from .config import config_to_dict, load_config
+from .config import ConfigValidationError, config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
@@ -165,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_validate = sub.add_parser("validate")
     p_validate.add_argument("timeline")
+
+    p_validate_run = sub.add_parser("validate-run", help="Preflight config, timeline, and transcript inputs together")
+    p_validate_run.add_argument("--config", help="Optional JSON config path")
+    p_validate_run.add_argument("--timeline", help="Optional timeline JSON path")
+    p_validate_run.add_argument("--transcript-json", help="Optional transcript JSON path")
+    p_validate_run.add_argument("--duration", type=float, help="Optional media duration override for transcript bounds")
 
     p_demo = sub.add_parser("demo-fixtures", help="Generate deterministic demo media fixtures with ffmpeg when available")
     p_demo.add_argument("--out", default="demo-fixtures")
@@ -351,10 +357,22 @@ def _format_review_list_markdown(review: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _validate_transcript_duration(segments: list[dict], duration: float) -> list[str]:
+    errors = []
+    for idx, segment in enumerate(segments):
+        if float(segment["end"]) > duration:
+            errors.append(f"segment[{idx}] ends after media duration ({segment['end']} > {duration})")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except (OSError, json.JSONDecodeError, ConfigValidationError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     if args.command == "probe":
         episode_id = args.episode_id or episode_id_from_path(args.input)
         paths = run_paths(args.out, episode_id)
@@ -610,6 +628,54 @@ def main(argv: list[str] | None = None) -> int:
                 print(error, file=sys.stderr)
             return 1
         print("ok")
+        return 0
+    if args.command == "validate-run":
+        errors: list[str] = []
+        checked: list[str] = []
+        duration = args.duration
+
+        if args.config:
+            checked.append("config")
+
+        if args.timeline:
+            checked.append("timeline")
+            try:
+                timeline = read_json(args.timeline)
+            except (OSError, json.JSONDecodeError) as exc:
+                errors.append(f"timeline: {exc}")
+            else:
+                errors.extend(validate_timeline(timeline))
+                if duration is None:
+                    raw_duration = timeline.get("media_manifest", {}).get("duration") if isinstance(timeline, dict) else None
+                    if raw_duration is not None:
+                        duration = float(raw_duration)
+
+        transcript_count = None
+        if args.transcript_json:
+            checked.append("transcript")
+            try:
+                segments = load_transcript_segments(args.transcript_json)
+            except (OSError, TranscriptValidationError) as exc:
+                errors.append(str(exc))
+            else:
+                transcript_count = len(segments)
+                if duration is not None:
+                    errors.extend(_validate_transcript_duration(segments, duration))
+
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            return 1
+        if not checked:
+            print("validate-run requires at least one of --config, --timeline, or --transcript-json", file=sys.stderr)
+            return 1
+        summary = [f"ok: {', '.join(checked)}"]
+        if transcript_count is not None:
+            suffix = "segment" if transcript_count == 1 else "segments"
+            summary.append(f"transcript: {transcript_count} {suffix}")
+        if duration is not None:
+            summary.append(f"duration: {duration:g}s")
+        print("; ".join(summary))
         return 0
     if args.command == "demo-fixtures":
         paths = make_demo_fixtures(args.out)

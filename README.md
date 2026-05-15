@@ -13,6 +13,7 @@ python -m podcast_auto_editor probe input.wav --out runs
 python -m podcast_auto_editor run input.wav --out runs
 python -m podcast_auto_editor validate-transcript transcript.json
 python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
+python -m podcast_auto_editor validate-run --timeline runs/input/timeline.proposed.v1.json --transcript-json transcript.json
 python -m podcast_auto_editor dry-run input.wav --out runs
 python -m podcast_auto_editor report runs/input --format markdown
 python -m podcast_auto_editor project init my-show --name "My Show"
@@ -71,6 +72,17 @@ The built-in `stub` provider is deterministic and dependency-free for tests and 
 Each cue must include numeric `start` and `end` fields plus string `text`. Invalid shapes fail fast before the pipeline starts, so transcript import errors are reported clearly instead of surfacing later as media or retake errors.
 
 Timeline and config validation also fail fast: operation confidence must be 0–1, affected track IDs must exist, cut ranges must stay within media duration, accepted cuts may not overlap, and quality/retake settings must stay within supported bounds.
+
+Use `validate-run` as a read-only preflight before processing media:
+
+```bash
+uv run python -m podcast_auto_editor validate-run \
+  --config config.json \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json transcript.json
+```
+
+When a timeline media duration or explicit `--duration` is available, transcript cues that extend past the media duration are rejected before any run artifact is written.
 
 ## Dry-run and reports
 
@@ -177,3 +189,15 @@ uv run python -m podcast_auto_editor transcribe input.wav \
 ```
 
 The provider requires explicit local paths and runs `whisper.cpp` with JSON output enabled. Missing binaries, missing models, failed commands, invalid JSON, or invalid transcript segments fail before `transcript.json` is written.
+
+## Docker Compose local AI stack
+
+For containerized local development and optional RTX 4090 AI services, see [`docs/docker-compose-ai-stack.md`](docs/docker-compose-ai-stack.md):
+
+```bash
+cp .env.example .env
+docker compose --profile ai up -d ollama app
+docker compose --profile ai exec app uv run --group dev pytest -q -p no:cacheprovider
+```
+
+The compose stack keeps `ollama` bound to localhost, uses NVIDIA GPU reservations for the local AI service, and leaves model files, `.env`, generated runs, and `.omx` outside version control.
