@@ -21,8 +21,8 @@ _AI_RESOURCE_PROFILES: dict[str, dict[str, Any]] = {
         "roles": {
             "asr": {
                 "primary": "faster-whisper-large-v3",
-                "fallback": "whisper.cpp-large-v3-q5_0",
-                "notes": "Use CUDA/fp16 or int8_float16; transcript output must validate as transcript.v1 before write.",
+                "fallback": "whisper-cpp-local-large-v3-q5_0",
+                "notes": "Use faster-whisper CUDA/fp16 or int8_float16 first; use whisper-cpp-local with explicit binary/model paths as the local fallback. Transcript output must validate as transcript.v1 before write.",
             },
             "llm": {
                 "primary": "qwen3-32b-q4",
