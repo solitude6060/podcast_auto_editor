@@ -55,11 +55,16 @@ uv run python -m podcast_auto_editor ai doctor --no-ollama --optional-whisper
 Model downloads are intentionally manual. Pull small smoke models first and schedule large model pulls/runs for a maintenance window:
 
 ```bash
+uv run python -m podcast_auto_editor ai models --tier api-local --pull-plan
+LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
+  uv run python -m podcast_auto_editor ai models --readiness --tier api-local --no-ollama
 uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
 docker compose --profile ai exec ollama ollama pull qwen3:0.6b
 # Later, when GPU memory is available:
 # docker compose --profile ai exec ollama ollama pull qwen3:32b
 ```
+
+Use `api-local` when an existing llama.cpp/OpenAI-compatible endpoint already serves `qwen3.6-27b-turbo3`; no Ollama pull is needed for that path.
 
 ## Optional local ASR mounts
 

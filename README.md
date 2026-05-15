@@ -215,5 +215,10 @@ Inspect the local model catalog and print manual pull commands without executing
 
 ```bash
 uv run python -m podcast_auto_editor ai models --format markdown
+uv run python -m podcast_auto_editor ai models --tier api-local --pull-plan
 uv run python -m podcast_auto_editor ai models --tier smoke --pull-plan
+LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
+  uv run python -m podcast_auto_editor ai models --readiness --tier api-local --no-ollama
 ```
+
+`api-local` is for an existing llama.cpp/OpenAI-compatible API model such as `qwen3.6-27b-turbo3`; it prints no download command and only checks `/v1/models` when asked for readiness.
