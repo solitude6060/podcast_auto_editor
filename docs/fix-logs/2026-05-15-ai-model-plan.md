@@ -42,3 +42,14 @@ Branch: `feature/ai-model-plan`
 - Diff whitespace: `git diff --check` → passed.
 - Local-only hygiene: `git ls-files .omx` → no tracked `.omx` files.
 - Co-author hygiene: recent commit scan for `Co-authored-by` → no matches.
+
+## Qwen 3.6 local API update
+
+- User clarified the existing model is API-format, not a model that should be downloaded by this project.
+- Endpoint: `http://127.0.0.1:9090/v1`.
+- Model name: `qwen3.6-27b-turbo3`.
+- Capability notes: 128k context and VL / vision-understanding capability.
+- API verification:
+  - `/v1/models` returned HTTP 200 and listed `qwen3.6-27b-turbo3`.
+  - Minimal `/v1/chat/completions` smoke returned HTTP 200 with `total_tokens=23`; no heavy load test was run.
+  - `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m podcast_auto_editor ai models --readiness --tier api-local --no-ollama --timeout 3 --format json` → `overall_status: ok`, `installed: 1/1`.
