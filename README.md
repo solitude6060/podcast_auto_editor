@@ -201,3 +201,12 @@ docker compose --profile ai exec app uv run --group dev pytest -q -p no:cachepro
 ```
 
 The compose stack keeps `ollama` bound to localhost, uses NVIDIA GPU reservations for the local AI service, and leaves model files, `.env`, generated runs, and `.omx` outside version control.
+
+Check local AI wiring without downloading models:
+
+```bash
+uv run python -m podcast_auto_editor ai doctor --optional-whisper --format markdown
+docker compose --profile ai exec app uv run python -m podcast_auto_editor ai doctor --optional-whisper
+```
+
+If another project is using the GPU, keep checks lightweight: use `--no-ollama` to skip the live Ollama probe, pull models manually only during an agreed maintenance window, and prefer smaller smoke models before loading 30B-class local LLMs.

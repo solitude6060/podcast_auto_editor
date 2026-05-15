@@ -37,6 +37,27 @@ docker compose --profile ai exec app \
   uv run python -m podcast_auto_editor ai resources --format markdown
 ```
 
+執行輕量 AI 環境 doctor：
+
+```bash
+docker compose --profile ai exec app \
+  uv run python -m podcast_auto_editor ai doctor --optional-whisper --format markdown
+```
+
+如果其他專案正在使用 GPU，避免重型 probe：
+
+```bash
+uv run python -m podcast_auto_editor ai doctor --no-ollama --optional-whisper
+```
+
+模型下載刻意設計成手動操作。請先拉小型 smoke model，等 GPU 記憶體可用時再排程大型 model：
+
+```bash
+docker compose --profile ai exec ollama ollama pull qwen3:0.6b
+# 之後 GPU 資源可用時：
+# docker compose --profile ai exec ollama ollama pull qwen3:32b
+```
+
 ## 可選本機 ASR mounts
 
 `whisper-cpp-local` 需要使用者自行管理的 `whisper.cpp` binary 與 GGML model。可透過 `.env` 掛載：
