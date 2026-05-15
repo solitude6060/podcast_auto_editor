@@ -8,7 +8,7 @@ def test_model_readiness_matches_ollama_tags_fixture(tmp_path):
     tags = tmp_path / "tags.json"
     tags.write_text(json.dumps({"models": [{"name": "qwen3:0.6b"}]}))
 
-    report = build_model_readiness_report(tags_json=tags, tier="all", check_ollama=False)
+    report = build_model_readiness_report(tags_json=tags, tier="all", check_ollama=False, check_openai_api=False)
 
     assert report["schema_version"] == "ai-model-readiness.v1"
     by_name = {model["name"]: model for model in report["models"]}
@@ -31,7 +31,7 @@ def test_ai_models_readiness_cli_outputs_json_from_fixture(tmp_path, capsys):
     tags = tmp_path / "tags.json"
     tags.write_text(json.dumps({"models": [{"name": "qwen3:0.6b"}]}))
 
-    assert main(["ai", "models", "--readiness", "--ollama-tags-json", str(tags), "--format", "json"]) == 0
+    assert main(["ai", "models", "--readiness", "--ollama-tags-json", str(tags), "--no-openai-api", "--format", "json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["summary"]["installed"] == 1
