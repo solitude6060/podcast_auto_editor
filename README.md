@@ -161,3 +161,19 @@ uv run python -m podcast_auto_editor transcribe input.wav \
 ```
 
 `faster-whisper-local` is not a core dependency. If `faster_whisper` is not installed, the command fails before writing `transcript.json`. The deterministic `stub` provider remains the default for tests and dependency-free smoke checks.
+
+### Optional whisper.cpp local ASR
+
+`whisper-cpp-local` is the dependency-light local fallback for users who manage their own `whisper.cpp` build and GGML model files:
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider whisper-cpp-local \
+  --binary /path/to/whisper-cli \
+  --model-path /models/ggml-large-v3-q5_0.bin \
+  --language zh \
+  --threads 8 \
+  --out transcript.json
+```
+
+The provider requires explicit local paths and runs `whisper.cpp` with JSON output enabled. Missing binaries, missing models, failed commands, invalid JSON, or invalid transcript segments fail before `transcript.json` is written.
