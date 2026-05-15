@@ -544,3 +544,62 @@ def test_review_next_cli_outputs_json(tmp_path, capsys):
 def test_review_serve_cli_validates_localhost(tmp_path, capsys):
     assert main(["review", "serve", str(tmp_path), "--host", "0.0.0.0"]) == 1
     assert "localhost only" in capsys.readouterr().err
+
+
+def test_validate_run_cli_accepts_config_timeline_and_transcript(tmp_path, capsys):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"quality": {"min_silence_duration_s": 1.0}}))
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline_path = tmp_path / "timeline.json"
+    write_json(timeline_path, timeline)
+    transcript_path = tmp_path / "transcript.json"
+    transcript_path.write_text(json.dumps({"schema_version": "transcript.v1", "segments": [{"start": 0.0, "end": 1.5, "text": "ok"}]}))
+
+    assert main(["validate-run", "--config", str(config_path), "--timeline", str(timeline_path), "--transcript-json", str(transcript_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "ok" in output
+    assert "config" in output
+    assert "timeline" in output
+    assert "transcript: 1 segment" in output
+
+
+def test_validate_run_cli_rejects_transcript_beyond_timeline_duration(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline_path = tmp_path / "timeline.json"
+    write_json(timeline_path, timeline)
+    transcript_path = tmp_path / "transcript.json"
+    transcript_path.write_text(json.dumps([{"start": 0.0, "end": 1.5, "text": "too long"}]))
+
+    assert main(["validate-run", "--timeline", str(timeline_path), "--transcript-json", str(transcript_path)]) == 1
+
+    assert "segment[0] ends after media duration" in capsys.readouterr().err
+
+
+def test_validate_run_cli_rejects_invalid_config(tmp_path, capsys):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"quality": {"min_silence_duration_s": 0}}))
+
+    assert main(["validate-run", "--config", str(config_path)]) == 1
+
+    assert "min_silence_duration_s must be > 0" in capsys.readouterr().err
+
+
+def test_validate_run_cli_rejects_invalid_timeline(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({"operation_id": "bad", "type": "silence_cut", "source_range": {"start": 0.5, "end": 2.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "deterministic", "confidence": 1.0, "provenance": {}, "preview_ref": None, "diff_ref": None, "recovery_ref": None})
+    timeline_path = tmp_path / "timeline.json"
+    write_json(timeline_path, timeline)
+
+    assert main(["validate-run", "--timeline", str(timeline_path)]) == 1
+
+    assert "source_range end exceeds media duration" in capsys.readouterr().err
+
+
+def test_validate_run_cli_duration_override_validates_transcript_only(tmp_path, capsys):
+    transcript_path = tmp_path / "transcript.json"
+    transcript_path.write_text(json.dumps([{"start": 0.0, "end": 1.5, "text": "too long"}]))
+
+    assert main(["validate-run", "--transcript-json", str(transcript_path), "--duration", "1.0"]) == 1
+
+    assert "segment[0] ends after media duration" in capsys.readouterr().err
