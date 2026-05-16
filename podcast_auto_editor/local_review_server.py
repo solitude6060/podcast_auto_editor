@@ -6,7 +6,7 @@ import shlex
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .review_session import apply_decision, next_review_item, review_status, write_review_session
 from .timeline import read_json
@@ -59,21 +59,58 @@ def _relative_path(root: Path, value: str | Path | None) -> str | None:
         return str(value).replace("\\", "/")
 
 
-def load_review_context(run_dir: str | Path) -> dict[str, Any]:
+def load_review_context(run_dir: str | Path, *, filter_type: str | None = None) -> dict[str, Any]:
     root = Path(run_dir)
     timeline_path, session_path, ai_draft_path = _paths(root)
     timeline = read_json(timeline_path)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []}
     operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
     ai_draft = _relative_path(root, ai_draft_path) if ai_draft_path.exists() else None
+    if filter_type:
+        filtered_ops = [op for op in operations if op.get("type") == filter_type]
+        timeline_for_next = {**timeline, "operations": filtered_ops}
+    else:
+        timeline_for_next = timeline
     return {
         "run_dir": str(root),
         "timeline": str(timeline_path),
         "session": str(session_path),
         "ai_draft": ai_draft,
+        "filter": filter_type,
         "status": review_status(session, total_operations=len(operations)),
-        "next": next_review_item(timeline, session, session_path=str(session_path)),
+        "next": next_review_item(timeline_for_next, session, session_path=str(session_path)),
     }
+
+
+def find_operation(run_dir: str | Path, operation_id: str) -> dict[str, Any] | None:
+    """Return the full operation payload for ``operation_id`` in ``run_dir``'s timeline, or None.
+
+    The dashboard's detail pane calls /api/operation/<id> to render risk,
+    confidence, preview / diff / recovery refs, and detector provenance for a
+    single operation without re-reading the entire timeline JSON in the
+    browser.
+    """
+    root = Path(run_dir)
+    timeline_path, _, _ = _paths(root)
+    if not timeline_path.exists():
+        return None
+    timeline = read_json(timeline_path)
+    for op in timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []:
+        if str(op.get("operation_id")) == operation_id:
+            return {
+                "operation_id": str(op.get("operation_id")),
+                "type": str(op.get("type")),
+                "state": str(op.get("state")),
+                "risk": op.get("risk"),
+                "confidence": op.get("confidence"),
+                "source_range": op.get("source_range"),
+                "affected_tracks": op.get("affected_tracks"),
+                "preview_ref": op.get("preview_ref"),
+                "diff_ref": op.get("diff_ref"),
+                "recovery_ref": op.get("recovery_ref"),
+                "provenance": op.get("provenance"),
+            }
+    return None
 
 
 def handle_api_decision(run_dir: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -208,6 +245,16 @@ def build_review_app_html(run_dir: str | Path) -> str:
       document.getElementById('note').value = '';
     }}
 
+    document.addEventListener('keydown', (event) => {{
+      const tag = event.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (event.key === 'a') decideCurrent('accept');
+      else if (event.key === 'r') decideCurrent('reject');
+      else if (event.key === 'u') decideCurrent('undo');
+      else if (event.key === 'j') refresh();
+      else if (event.key === 'k') refresh();
+    }});
+
     refresh();
   </script>
 </body>
@@ -278,7 +325,8 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib hook name
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/index.html"}:
             body = build_review_app_html(self.run_dir).encode()
             self.send_response(200)
@@ -288,7 +336,21 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/api/status":
-            self._send_json(load_review_context(self.run_dir))
+            params = parse_qs(parsed.query)
+            filter_values = params.get("filter") or []
+            filter_type = filter_values[0] if filter_values else None
+            self._send_json(load_review_context(self.run_dir, filter_type=filter_type))
+            return
+        if path.startswith("/api/operation/"):
+            operation_id = path[len("/api/operation/"):]
+            if not operation_id or "/" in operation_id or operation_id in {".", ".."}:
+                self.send_error(404)
+                return
+            op = find_operation(self.run_dir, operation_id)
+            if op is None:
+                self.send_error(404)
+                return
+            self._send_json(op)
             return
         artifact = _resolve_artifact_request(self.run_dir, path)
         if artifact is not None:

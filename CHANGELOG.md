@@ -14,6 +14,7 @@ All notable changes to this project should be documented here.
 - Local review dashboard concentration updates: `review serve` now includes AI draft path and artifact/status context in both API and HTML output.
 - Docker local AI stack E2E check script: `scripts/e2e-docker-ai-stack.sh` and focused e2e script coverage.
 - `podcast-auto-editor recipe export/apply` — bundle a run directory into a portable `recipe.v1.json` and replay it against the same source media. Source media sha256 is verified on apply; pass `--allow-media-drift` to override. The recipe embeds the accepted timeline, config snapshot, and optional AI draft so downstream tools / collaborators can reproduce the edit deterministically.
+- Review dashboard now exposes a per-operation detail endpoint at `GET /api/operation/<id>` and a filter parameter on `GET /api/status?filter=<type>` so producers can sweep silence-cuts first, then retake-cuts, etc. Browser keyboard nav: `a` accept, `r` reject, `u` undo, `j`/`k` advance to the next pending operation. Keyboard shortcuts are suppressed when typing in the reviewer or note inputs.
 
 ### Changed
 - Pending public release; keep entries grouped under Added/Changed/Fixed/Security.
