@@ -22,8 +22,20 @@ def test_load_review_context_reads_run_artifacts(tmp_path):
     context = load_review_context(root)
 
     assert context["run_dir"] == str(root)
+    assert context["ai_draft"] is None
     assert context["status"]["decision_counts"]["pending"] == 1
     assert context["next"]["operation_id"] == "speech1"
+
+
+def test_load_review_context_includes_ai_draft_relative_path(tmp_path):
+    root = _run_dir(tmp_path)
+    ai_dir = root / "ai"
+    ai_dir.mkdir()
+    (ai_dir / "ai-draft.v1.json").write_text("{}")
+
+    context = load_review_context(root)
+
+    assert context["ai_draft"] == "ai/ai-draft.v1.json"
 
 
 def test_handle_api_decision_appends_to_review_session(tmp_path):
@@ -41,6 +53,8 @@ def test_build_review_app_html_is_static_and_local(tmp_path):
 
     html = build_review_app_html(root)
 
+    assert "Run Dashboard" in html
+    assert "AI Draft" in html
     assert "Podcast Auto Editor Review" in html
     assert "fetch('/api/status')" in html
     assert "/api/decision" in html

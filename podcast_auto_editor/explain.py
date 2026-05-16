@@ -101,4 +101,16 @@ def format_explanation_markdown(explanation: dict[str, Any]) -> str:
         f"- Diff: {artifact_refs.get('diff') or '-'}",
         f"- Recovery: {artifact_refs.get('recovery') or '-'}",
     ]
+    ai_explanation = explanation.get("ai_explanation") or {}
+    if ai_explanation:
+        lines.extend(
+            [
+                "",
+                "## AI Explanation",
+                f"- Dry prompt: {ai_explanation.get('dry_prompt', False)}",
+                f"- Risk: {ai_explanation.get('risk') or ai_explanation.get('source', {}).get('risk') or '-'}",
+                f"- Rationale: {ai_explanation.get('rationale') or ai_explanation.get('rationale_score') or ai_explanation.get('source', {}).get('rationale_score') or ''}",
+                f"- Reason: {ai_explanation.get('rationale') or ai_explanation.get('llm_reason') or '-'}",
+            ]
+        )
     return "\n".join(lines) + "\n"

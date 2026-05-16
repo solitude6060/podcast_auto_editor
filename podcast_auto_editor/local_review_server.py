@@ -20,21 +20,32 @@ def validate_review_host(host: str) -> str:
     return host
 
 
-def _paths(run_dir: str | Path) -> tuple[Path, Path]:
+def _paths(run_dir: str | Path) -> tuple[Path, Path, Path]:
     root = Path(run_dir)
-    return root / "timeline.proposed.v1.json", root / "review-session.json"
+    return root / "timeline.proposed.v1.json", root / "review-session.json", root / "ai/ai-draft.v1.json"
+
+
+def _relative_path(root: Path, value: str | Path | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return Path(value).resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(value).replace("\\", "/")
 
 
 def load_review_context(run_dir: str | Path) -> dict[str, Any]:
     root = Path(run_dir)
-    timeline_path, session_path = _paths(root)
+    timeline_path, session_path, ai_draft_path = _paths(root)
     timeline = read_json(timeline_path)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []}
     operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
+    ai_draft = _relative_path(root, ai_draft_path) if ai_draft_path.exists() else None
     return {
         "run_dir": str(root),
         "timeline": str(timeline_path),
         "session": str(session_path),
+        "ai_draft": ai_draft,
         "status": review_status(session, total_operations=len(operations)),
         "next": next_review_item(timeline, session, session_path=str(session_path)),
     }
@@ -42,7 +53,7 @@ def load_review_context(run_dir: str | Path) -> dict[str, Any]:
 
 def handle_api_decision(run_dir: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     root = Path(run_dir)
-    _, session_path = _paths(root)
+    _, session_path, _ = _paths(root)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(_paths(root)[0]), "decisions": []}
     session = apply_decision(
         session,
@@ -71,21 +82,40 @@ def build_review_app_html(run_dir: str | Path) -> str:
     button {{ margin-right: .5rem; }}
     label {{ display: block; margin: .5rem 0; }}
     input {{ min-width: 18rem; }}
-    #next {{ border: 1px solid #ddd; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }}
+    section {{ border: 1px solid #ddd; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }}
+    .muted {{ color: #555; }}
     pre {{ background: #f6f8fa; overflow: auto; padding: 1rem; }}
   </style>
 </head>
 <body>
   <h1>Podcast Auto Editor Review</h1>
-  <p>Run directory: <code>{_escape(Path(run_dir))}</code></p>
-  <p>State file: <code>review-session.json</code></p>
-  <section id=\"next\">Loading next operation…</section>
-  <label>Reviewer <input id=\"reviewer\" value=\"local-reviewer\" autocomplete=\"name\"></label>
-  <label>Note <input id=\"note\" placeholder=\"Optional decision note\"></label>
-  <button id=\"accept\" type=\"button\" onclick=\"decideCurrent('accept')\">Accept</button>
-  <button id=\"reject\" type=\"button\" onclick=\"decideCurrent('reject')\">Reject</button>
-  <button id=\"undo\" type=\"button\" onclick=\"decideCurrent('undo')\">Undo</button>
-  <pre id=\"status\">Loading…</pre>
+  <section>
+    <h2>Run Dashboard</h2>
+    <p>Run directory: <code>{_escape(Path(run_dir))}</code></p>
+    <p>State file: <code>review-session.json</code></p>
+    <p>AI Draft: <span id=\"ai-draft\" class=\"muted\">Loading…</span></p>
+  </section>
+  <section>
+    <h2>Next</h2>
+    <div id=\"next\">Loading next operation…</div>
+    <label>Reviewer <input id=\"reviewer\" value=\"local-reviewer\" autocomplete=\"name\"></label>
+    <label>Note <input id=\"note\" placeholder=\"Optional decision note\"></label>
+    <button id=\"accept\" type=\"button\" onclick=\"decideCurrent('accept')\">Accept</button>
+    <button id=\"reject\" type=\"button\" onclick=\"decideCurrent('reject')\">Reject</button>
+    <button id=\"undo\" type=\"button\" onclick=\"decideCurrent('undo')\">Undo</button>
+  </section>
+  <section>
+    <h2>Artifacts</h2>
+    <ul id=\"artifact-list\">
+      <li><a href=\"timeline.proposed.v1.json\">timeline.proposed.v1.json</a></li>
+      <li><a href=\"review-session.json\">review-session.json</a></li>
+      <li id=\"artifact-ai-draft\"></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Status</h2>
+    <pre id=\"status\">Loading…</pre>
+  </section>
   <script>
     let currentOperation = null;
 
@@ -107,10 +137,32 @@ def build_review_app_html(run_dir: str | Path) -> str:
       target.textContent = summary;
     }}
 
+    function setAiDraft(status) {{
+      const aiDraft = document.getElementById('ai-draft');
+      const artifactItem = document.getElementById('artifact-ai-draft');
+      if (status.ai_draft) {{
+        const link = document.createElement('a');
+        link.href = status.ai_draft;
+        link.textContent = status.ai_draft;
+        aiDraft.textContent = '';
+        aiDraft.appendChild(link);
+
+        artifactItem.textContent = '';
+        const itemLink = document.createElement('a');
+        itemLink.href = status.ai_draft;
+        itemLink.textContent = status.ai_draft;
+        artifactItem.appendChild(itemLink);
+        return;
+      }}
+      aiDraft.textContent = 'Not generated yet';
+      artifactItem.textContent = 'AI draft missing';
+    }}
+
     async function refresh() {{
       const status = await fetch('/api/status').then(r => r.json());
       document.getElementById('status').textContent = JSON.stringify(status, null, 2);
       renderNext(status);
+      setAiDraft(status);
     }}
 
     async function decide(operation_id, decision, reviewer, note) {{

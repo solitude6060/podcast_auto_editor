@@ -87,6 +87,46 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+## AI 輔助與可解釋性
+
+可用 `ai draft` 由 timeline + transcript 產生「僅供 review」的建議草稿：
+
+```bash
+uv run python -m podcast_auto_editor ai draft \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+草稿預設會寫到 timeline 目錄下的 `ai/ai-draft.v1.json`。
+
+`--dry-run` 為 `--dry-prompt` 的別名（同時視為 `--no-net`），適合離線或 CI 安全流程。
+
+可對單筆操作做 AI 解釋：
+
+```bash
+uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.json \
+  --operation-id speech_abc123 \
+  --with-ai \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+在 `--dry-prompt` 或 `--dry-run` 模式下，不會觸發任何網路 AI 呼叫。
+
+## Docker AI stack E2E 檢查
+
+可用下列 script 跑本機 AI stack 檢查：
+
+```bash
+./scripts/e2e-docker-ai-stack.sh --dry-run
+./scripts/e2e-docker-ai-stack.sh
+```
+
+腳本會啟動 Compose 的 app + ollama（若可用）、執行一次簡易 smoke CLI、最後做清理關停。
+
 ## 專案與批次 dry-run
 
 用 `project init` 建立 `.omx` 之外的本機專案 manifest：
@@ -123,7 +163,7 @@ uv run python -m podcast_auto_editor review serve runs/episode
 uv run python -m podcast_auto_editor review launcher runs/episode --out runs/episode/open-review-ui.sh --desktop-out runs/episode/open-review-ui.desktop
 ```
 
-`review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
+`review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。同時提供 Run Dashboard（待決策狀態、下一筆操作、AI draft 連結）。
 `review launcher` 會產生本機啟動檔，啟動同一個 localhost-only review server；這些 launcher 是本機 artifacts，不應提交進版控。
 
 ## Docker Compose 本機 AI stack

@@ -8,6 +8,7 @@ from pathlib import Path
 from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
 from .ai_models import build_model_catalog, build_model_readiness_report, build_pull_plan, format_model_catalog_markdown, format_model_readiness_markdown, format_pull_plan_script
+from .ai_drafts import AI_DRAFT_REL_PATH, AIServiceError, build_ai_explanation, generate_ai_draft
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
@@ -129,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
     p_explain.add_argument("timeline")
     p_explain.add_argument("--operation-id", required=True)
+    p_explain.add_argument("--with-ai", action="store_true", help="Include local AI explanation fields")
+    p_explain.add_argument("--dry-prompt", action="store_true", help="Build AI request payload without network call")
+    p_explain.add_argument("--no-net", action="store_true", help="Disable AI network call")
+    p_explain.add_argument("--base-url", help="AI base URL (OpenAI-compatible)")
+    p_explain.add_argument("--model", help="AI model name")
+    p_explain.add_argument("--timeout", type=float, default=0.5)
+    p_explain.add_argument("--transcript-json", help="Optional transcript JSON for AI explanation context")
     p_explain.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
     p_project = sub.add_parser("project", help="Project manifest commands")
@@ -182,6 +190,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_ai_models.add_argument("--no-openai-api", action="store_true")
     p_ai_models.add_argument("--timeout", type=float, default=0.5)
     p_ai_models.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_ai_draft = ai_sub.add_parser("draft", help="Generate AI drafting suggestions from timeline and transcript")
+    p_ai_draft.add_argument("--timeline", required=True)
+    p_ai_draft.add_argument("--transcript-json")
+    p_ai_draft.add_argument("--out")
+    p_ai_draft.add_argument("--dry-prompt", action="store_true", help="Build payload only, no network call")
+    p_ai_draft.add_argument("--dry-run", action="store_true", help="Alias for --dry-prompt; do not send network request")
+    p_ai_draft.add_argument("--no-net", action="store_true", help="Skip AI request")
+    p_ai_draft.add_argument("--base-url", help="AI base URL (OpenAI-compatible)")
+    p_ai_draft.add_argument("--model", help="AI model name")
+    p_ai_draft.add_argument("--timeout", type=float, default=0.5)
+    p_ai_draft.add_argument("--max-chapters", type=int, default=8)
+    p_ai_draft.add_argument("--format", choices=("json", "markdown"), default="json")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
@@ -204,6 +224,16 @@ def _load_optional_transcript(path: str | None) -> list[dict] | None:
     if not path:
         return None
     return load_transcript_segments(path)
+
+
+def _resolve_ai_output_path(timeline_path: str | Path, out: str | None) -> Path:
+    timeline_dir = Path(timeline_path).parent
+    if not out:
+        return timeline_dir / AI_DRAFT_REL_PATH
+    candidate = Path(out)
+    if candidate.suffix.lower() == ".json":
+        return candidate
+    return candidate / AI_DRAFT_REL_PATH
 
 
 def _execute_dry_run(input_path: str | Path, out_dir: str | Path, config, episode_id: str | None = None, transcript_segments: list[dict] | None = None):
@@ -571,7 +601,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     if args.command == "explain":
         try:
-            explanation = explain_operation(read_json(args.timeline), args.operation_id)
+            if args.with_ai:
+                timeline = read_json(args.timeline)
+                transcript_segments = _load_optional_transcript(args.transcript_json)
+                explanation = build_ai_explanation(
+                    timeline=timeline,
+                    operation_id=args.operation_id,
+                    transcript_segments=transcript_segments,
+                    base_url=args.base_url,
+                    model=args.model,
+                    timeout_s=args.timeout,
+                    dry_prompt=args.dry_prompt,
+                    no_net=args.no_net,
+                )
+            else:
+                explanation = explain_operation(read_json(args.timeline), args.operation_id)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -630,6 +674,35 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_ai_doctor_markdown(report), end="")
             return 1 if report["overall_status"] == "missing" else 0
+        if args.ai_command == "draft":
+            if not args.transcript_json:
+                print("ai draft requires --transcript-json", file=sys.stderr)
+                return 1
+            try:
+                transcript_segments = _load_optional_transcript(args.transcript_json)
+                timeline = read_json(args.timeline)
+                payload = generate_ai_draft(
+                    timeline=timeline,
+                    transcript_segments=transcript_segments,
+                    base_url=args.base_url,
+                    model=args.model,
+                    timeout_s=args.timeout,
+                    max_chapters=args.max_chapters,
+                    dry_prompt=args.dry_prompt or args.dry_run,
+                    no_net=args.no_net or args.dry_run,
+                    timeline_path=args.timeline,
+                )
+            except (OSError, json.JSONDecodeError, TranscriptValidationError, AIServiceError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            out_path = _resolve_ai_output_path(args.timeline, args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(out_path, payload)
+            if args.format == "json":
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print(f"AI draft: {out_path}")
+            return 0
         if args.ai_command == "models":
             if args.readiness:
                 report = build_model_readiness_report(
