@@ -233,7 +233,7 @@ def _load_review_session_or_empty(session_path: str | Path, source_timeline: str
         return read_json(path)
     return {
         "schema_version": "review-session.v1",
-        "source_timeline": str(source_timeline) if source_timeline else str(path),
+        "source_timeline": str(source_timeline) if source_timeline else "",
         "decisions": [],
     }
 
