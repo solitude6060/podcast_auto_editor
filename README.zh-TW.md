@@ -1,15 +1,44 @@
 # Podcast Auto Editor
 
-本專案是本機優先、CLI 優先的 podcast 後製工具。目標是自動處理完整單集的音訊，並保留可檢查、可回復的剪輯流程。
+English version: [`README.md`](README.md)
 
-目前功能包含：
-- 偵測長靜音並提出剪輯建議。
-- 依 transcript 提出 speech cleanup / retake 建議。
-- 產生 per-operation preview、diff、recovery map。
-- 產生 transcript、SRT、VTT、chapters。
-- 輸出 archive WAV、podcast stereo MP3、podcast mono MP3。
-- 支援 review session，可記錄 accept / reject / undo 決策。
-- 產生本機靜態 HTML report。
+## 為什麼做這個
+
+- **整個流程都在你的筆電上跑。** 不用註冊、不用登入、不用上傳。音檔不會離開你的硬碟。
+- **完全免費，沒有月費，沒有按分鐘計費。** 三月剪 90 分鐘那集，四月休息，五月剪兩集 — 不管怎麼用，成本都是零。
+- **每個剪輯動作都可以審過再上線。** 工具產出一份 `timeline.v1` JSON 列出所有提議的剪輯，加上每段剪輯的試聽檔；你在本機 dashboard 上一個一個按 accept 或 reject。沒有任何 AI 自動幫你改掉的事。
+- **剪輯紀錄是可重現的。** 一次跑完會產一份可以 commit 進 git 的紀錄檔，幾個月後對同一份原始音檔 replay 就會得到一模一樣的成果。`docs/research/2026-05-17-competitor-landscape.md` 裡調查過的競品都沒做這件事。
+
+## 怎麼跟其他工具比
+
+| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
+|---|---|---|---|---|
+| 在本機跑 | 不是 | 不是 | 不是 | **是** |
+| 音檔要上傳給廠商 | 要 | 要 | 要 | **不用** |
+| 月費 | 16–50 美金 | 24–79 美金 | 11–90 美金 | **免費** |
+| 按 AI 用量計費 | 要（按分鐘） | 要 | 要（按小時） | **不用** |
+| 一個一個審剪輯動作 | 部分 | 部分 | 只有報告 | **可以** |
+| 剪輯紀錄可以丟進 git | 不行 | 不行 | 不行 | **可以**（規劃中，見 roadmap） |
+
+資料來源：`docs/research/2026-05-17-competitor-landscape.md`（2025-2026 各家定價頁 + Reddit / G2 用戶抱怨）。
+
+## 這是什麼
+
+一個跑在你筆電上的 podcast 後製流水線。用 canonical 可回復的 `timeline.v1` 在動媒體前就把剪輯記錄起來，主打音訊（WAV / MP3 / M4A），可選擇處理 MP4 同步 / 輸出，所有自動剪輯都透過 preview、diff、recovery 三種紀錄保留下來給你檢查。
+
+具體功能：
+- 偵測長靜音，提議要剪掉的時間點（只有確定的靜音會自動接受，會改動語意的剪輯一律要人工審）。
+- 產生 transcript、字幕（SRT / VTT）、章節標記。
+- 草擬 AI 章節 / 摘要 / show notes（只是建議，絕對不會自動套用；用 `--dry-prompt` 可以不連網）。
+- 輸出 archive WAV 加上 podcast stereo / mono MP3，每個輸出都有 LUFS 跟 true-peak 品質檢查。
+- 產出 `timeline.v1` 跟 recovery map，所有接受的剪輯都可以回復。
+
+## 這不是什麼
+
+- **不是 DAW 替代品。** 多軌混音、效果器、創意剪輯還是該用 Reaper / Hindenburg / Audacity。
+- **不是雲端錄音工具。** 多人遠端錄音請繼續用 Riverside / SquadCast / Zencastr，然後把檔案匯進這裡處理。
+- **不是聲音克隆工具。** 故意不做合成聲音。
+- **不是發布工具。** RSS / Spotify / Apple 上架請用其他工具。
 
 ## 快速開始
 
