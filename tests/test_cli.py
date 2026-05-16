@@ -8,6 +8,44 @@ from podcast_auto_editor.transcript import load_transcript_segments
 from podcast_auto_editor.timeline import create_noop_timeline, write_json
 
 
+def test_ai_draft_rejects_invalid_timeline(tmp_path, capsys):
+    """Regression for review: `ai draft` must call validate_timeline before
+    generate_ai_draft, so malformed `operations` produces a clean CLI error
+    instead of an uncaught AttributeError or a silent zero-candidate draft."""
+    bad_timeline = {
+        "schema_version": "timeline.v1",
+        "media_manifest": {"path": "input.wav", "duration": 1.0},
+        "tracks": [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+        "timebase": {"primary_time_unit": "seconds", "audio_sample_rate": 48000, "pts_origin": 0},
+        "operations": "not a list",
+        "provenance": {"created_by": "test", "contract": "timeline.v1"},
+        "export_metadata": {},
+        "recovery": {"source_to_output": [], "removed_segments": [], "undo": []},
+    }
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    timeline_path.write_text(json.dumps(bad_timeline))
+    transcript_path = tmp_path / "transcript.json"
+    transcript_path.write_text(json.dumps([{"start": 0.0, "end": 1.0, "text": "hi"}]))
+    out_path = tmp_path / "ai-draft.v1.json"
+
+    rc = cli.main([
+        "ai",
+        "draft",
+        "--timeline",
+        str(timeline_path),
+        "--transcript-json",
+        str(transcript_path),
+        "--dry-prompt",
+        "--out",
+        str(out_path),
+    ])
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "operations" in err.lower() or "timeline" in err.lower(), err
+    assert not out_path.exists(), "ai draft must not write artifact when timeline is invalid"
+
+
 def test_validate_cli_accepts_valid_timeline(capsys):
     timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     with tempfile.TemporaryDirectory() as td:
