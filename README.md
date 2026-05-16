@@ -139,6 +139,27 @@ Speech cleanup heuristics can propose filler or false-start removals as `speech_
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
 
+## Chinese podcasts (drop-in: Belle-whisper-large-v3-zh)
+
+`faster-whisper-local` accepts any HuggingFace-compatible weights ID via `--model`. For Chinese content, drop in `BELLE-2/Belle-whisper-large-v3-zh` (Apache-2.0) without changing the rest of the pipeline:
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider faster-whisper-local \
+  --model BELLE-2/Belle-whisper-large-v3-zh \
+  --device cuda --compute-type float16 \
+  --out transcript.json
+```
+
+Reported CER improvement vs vanilla `whisper-large-v3` (model card):
+- AISHELL-1: 8.085 → **2.781**
+- AISHELL-2: 5.475 → **3.786**
+- WenetSpeech net: 11.72 → **8.865**
+- WenetSpeech meeting: 20.15 → **11.246**
+- HKUST: 28.597 → **16.440**
+
+Trade-offs: trained on simplified Chinese only (繁中 / Taiwan Mandarin unverified). For higher-accuracy Chinese ASR with native long-audio support (20-min single-segment), see `docs/research/2026-05-17-chinese-asr-models.md` for the Qwen3-ASR provider planned in PR-X2.
+
 ## Diarization (optional)
 
 The tool can attach a `speaker_id` label to each transcript cue so AI chapter drafts, show-notes, and per-speaker filler detection can attribute speech correctly. The provider interface is pluggable:

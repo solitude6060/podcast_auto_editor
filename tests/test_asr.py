@@ -146,6 +146,42 @@ def test_faster_whisper_provider_normalizes_segments(tmp_path, monkeypatch):
     assert data["segments"] == [{"start": 0.25, "end": 1.5, "text": "hello world"}]
 
 
+def test_faster_whisper_provider_accepts_belle_whisper_zh_drop_in(tmp_path, monkeypatch):
+    """PR-X1: BELLE-2/Belle-whisper-large-v3-zh is wire-compatible with
+    faster-whisper. The provider must pass the HuggingFace model id through
+    unchanged so users can drop in the Chinese-fine-tuned weights via
+    `--model BELLE-2/Belle-whisper-large-v3-zh` without code changes."""
+    import sys
+    import types
+
+    captured = {}
+
+    class Segment:
+        start = 0.0
+        end = 1.0
+        text = "你好"
+
+    class WhisperModel:
+        def __init__(self, model, device="auto", compute_type="auto"):
+            captured["model"] = model
+
+        def transcribe(self, input_path, beam_size=5):
+            return [Segment()], object()
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=WhisperModel))
+
+    cli.transcribe_to_file(
+        tmp_path / "episode.wav",
+        tmp_path / "transcript.json",
+        provider_name="faster-whisper-local",
+        model="BELLE-2/Belle-whisper-large-v3-zh",
+        device="cuda",
+        compute_type="float16",
+    )
+
+    assert captured["model"] == "BELLE-2/Belle-whisper-large-v3-zh"
+
+
 def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
     captured = {}
 

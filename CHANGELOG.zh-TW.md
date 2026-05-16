@@ -17,6 +17,7 @@
 - `review serve` dashboard 整合 AI 草稿連結與 artifacts/context（API + HTML）資訊。
 - 新增本機 AI stack e2e 腳本：`scripts/e2e-docker-ai-stack.sh` 及對應腳本測試。
 - `podcast-auto-editor recipe export/apply`：把整個 run 目錄打包成可攜帶的 `recipe.v1.json`，可在同一份原始音檔上重放。Apply 時會驗證來源音檔 sha256，要繞過驗證請加 `--allow-media-drift`。recipe 內含 accepted timeline、config 快照、AI draft（如有），下游工具與協作者可以重現一模一樣的剪輯結果。
+- 中文 ASR drop-in：`faster-whisper-local --model BELLE-2/Belle-whisper-large-v3-zh`（Apache-2.0）。對比 vanilla `whisper-large-v3` 的 CER 在 AISHELL / WenetSpeech / HKUST 上降 -24~-66%。新增 regression test 確認 HuggingFace 模型 id 會 unchanged 傳給底層 WhisperModel。中文 ASR 全景見 `docs/research/2026-05-17-chinese-asr-models.md`。
 - 新增 `podcast-auto-editor quickstart [--out <dir>] [--episode-id demo]`：一鍵 demo — 產生 demo fixtures、跑 pipeline 對著合成靜音範例、印出產生的 run 目錄跟建議的後續指令（`report` / `review serve`）。沒裝 ffmpeg 會 fail-fast 並提示。
 - 新增 `scripts/install.sh`：Linux + uv 安裝腳本。冪等（跑兩次也沒事）；`uv` 不在 PATH 時 fail 並指向 uv 官方安裝文件；沒有 `ffmpeg` 時跳過 demo fixture 產生。macOS / WSL 路徑只在 README 文件記但尚未驗證。
 - 新增 operation type `backchannel_cut`：對應短短的附和詞（"right"、"mhm"、"對對對"）。render 安全規則跟 `speech_cut` 一樣 — 永遠 proposed、不會 auto-accept、要 manual review + preview/diff/recovery artefacts。`detect_backchannel_candidates(transcript_segments, speaker_aggression=...)` 產生這類操作；`detect_speech_cleanup_candidates` 也新增同樣的 `speaker_aggression={"spk0": "off"}` 參數，可以讓主持人的附和詞風格保留，只剪掉來賓的填詞。
