@@ -220,6 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_ai_draft.add_argument("--model", help="AI model name")
     p_ai_draft.add_argument("--timeout", type=float, default=0.5)
     p_ai_draft.add_argument("--max-chapters", type=int, default=8)
+    p_ai_draft.add_argument("--speaker-segments", help="Optional speaker_segments.v1.json for per-speaker attribution")
+    p_ai_draft.add_argument("--speaker-label", action="append", default=[], help="Map speaker id to display label, e.g. spk0=Host. Repeatable.")
     p_ai_draft.add_argument("--format", choices=("json", "markdown"), default="json")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
@@ -737,6 +739,30 @@ def main(argv: list[str] | None = None) -> int:
                 for error in timeline_errors:
                     print(error, file=sys.stderr)
                 return 1
+            speaker_segments_payload = None
+            if args.speaker_segments:
+                try:
+                    raw_segments = read_json(args.speaker_segments)
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 1
+                if isinstance(raw_segments, dict) and isinstance(raw_segments.get("segments"), list):
+                    speaker_segments_payload = raw_segments["segments"]
+                elif isinstance(raw_segments, list):
+                    speaker_segments_payload = raw_segments
+                else:
+                    print("--speaker-segments expects speaker_segments.v1 JSON (object with segments array, or raw list)", file=sys.stderr)
+                    return 1
+            speaker_labels_payload: dict[str, str] | None = None
+            if args.speaker_label:
+                labels: dict[str, str] = {}
+                for entry in args.speaker_label:
+                    if "=" not in entry:
+                        print(f"--speaker-label expects spk0=Host form: {entry!r}", file=sys.stderr)
+                        return 1
+                    key, value = entry.split("=", 1)
+                    labels[key.strip()] = value.strip()
+                speaker_labels_payload = labels
             try:
                 payload = generate_ai_draft(
                     timeline=timeline,
@@ -748,6 +774,8 @@ def main(argv: list[str] | None = None) -> int:
                     dry_prompt=args.dry_prompt or args.dry_run,
                     no_net=args.no_net or args.dry_run,
                     timeline_path=args.timeline,
+                    speaker_segments=speaker_segments_payload,
+                    speaker_labels=speaker_labels_payload,
                 )
             except (OSError, json.JSONDecodeError, TranscriptValidationError, AIServiceError, ValueError) as exc:
                 print(str(exc), file=sys.stderr)
