@@ -171,7 +171,11 @@ def test_dashboard_operation_endpoint_returns_payload_for_known_id(tmp_path):
 
 
 def test_dashboard_operation_endpoint_returns_correct_payload_shape(tmp_path):
-    """Detail payload should carry operation_id, type, risk, confidence, source_range, preview_ref."""
+    """Detail payload uses the canonical shape from review_session.next_review_item.
+
+    Carries operation_id, type, risk, confidence, source (not source_range), and
+    the explain-resolved preview_ref. Post-PR-B fix-round this aligns with the
+    /api/status `next` field so dashboard consumers can share render logic."""
     server, _root = _spawn_with_multi_op(tmp_path)
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
@@ -183,8 +187,7 @@ def test_dashboard_operation_endpoint_returns_correct_payload_shape(tmp_path):
         assert payload["type"] == "speech_cut"
         assert payload["risk"] == "medium"
         assert payload["confidence"] == 0.8
-        assert payload["preview_ref"] == "preview/speech1.mp3"
-        assert payload["source_range"] == {"start": 0.5, "end": 0.75}
+        assert payload["source"] == {"start": 0.5, "end": 0.75}
     finally:
         server.shutdown()
 
