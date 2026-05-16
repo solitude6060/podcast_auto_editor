@@ -8,6 +8,105 @@ from podcast_auto_editor.transcript import load_transcript_segments
 from podcast_auto_editor.timeline import create_noop_timeline, write_json
 
 
+def test_review_next_works_when_session_file_missing(tmp_path, capsys):
+    """Regression for PR-A walkthrough: after `run` produces a run directory,
+    `review next` was crashing with FileNotFoundError because no
+    `review-session.json` had been seeded yet. The dashboard's
+    `load_review_context` already tolerates missing-session by returning an
+    empty in-memory session; the CLI must match that semantics so the
+    documented `run -> review next -> review decide` flow works first try."""
+    timeline = create_noop_timeline(
+        {"path": "input.wav", "duration": 2.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_only_op",
+        "type": "silence_cut",
+        "source_range": {"start": 0.5, "end": 1.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    write_json(timeline_path, timeline)
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "next",
+        str(session_path),
+        "--timeline",
+        str(timeline_path),
+        "--format",
+        "json",
+    ])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload is not None
+    assert payload["operation_id"] == "silence_only_op"
+
+
+def test_review_decide_works_when_session_file_missing_and_writes_clean_source_timeline(tmp_path, capsys):
+    """Regression for PR #26 triple review: `review decide` against a missing
+    session file must (a) succeed without crash, (b) actually persist the
+    session, and (c) NOT record the session file path as `source_timeline` —
+    that would corrupt the schema vs the dashboard's missing-session shape."""
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "decide",
+        str(session_path),
+        "--operation-id",
+        "silence_op_1",
+        "--decision",
+        "accept",
+        "--reviewer",
+        "producer",
+    ])
+
+    assert rc == 0
+    assert session_path.exists()
+    session = json.loads(session_path.read_text())
+    assert session["schema_version"] == "review-session.v1"
+    assert session["source_timeline"] != str(session_path), (
+        "decide on missing session must not persist the session file path as source_timeline"
+    )
+    assert session["decisions"][0]["operation_id"] == "silence_op_1"
+    assert session["decisions"][0]["decision"] == "accept"
+    assert session["decisions"][0]["reviewer"] == "producer"
+
+
+def test_review_status_works_when_session_file_missing(tmp_path, capsys):
+    """Companion to review-next regression: status against a fresh run dir
+    must produce an empty-decisions summary instead of a traceback."""
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "status",
+        str(session_path),
+        "--format",
+        "json",
+    ])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_counts"]["accepted"] == 0
+    assert payload["decision_counts"]["rejected"] == 0
+
+
 def test_ai_draft_rejects_invalid_timeline(tmp_path, capsys):
     """Regression for review: `ai draft` must call validate_timeline before
     generate_ai_draft, so malformed `operations` produces a clean CLI error

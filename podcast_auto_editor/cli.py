@@ -220,6 +220,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_review_session_or_empty(session_path: str | Path, source_timeline: str | Path | None = None) -> dict:
+    """Read a review-session.json or return an empty session dict.
+
+    Matches `local_review_server.load_review_context` semantics: review CLI
+    subcommands (`next`, `status`, `decide`) must work against a freshly
+    completed `run` directory where `review-session.json` has not been seeded
+    yet, instead of crashing with FileNotFoundError.
+    """
+    path = Path(session_path)
+    if path.exists():
+        return read_json(path)
+    return {
+        "schema_version": "review-session.v1",
+        "source_timeline": str(source_timeline) if source_timeline else "",
+        "decisions": [],
+    }
+
+
 def _load_optional_transcript(path: str | None) -> list[dict] | None:
     if not path:
         return None
@@ -552,7 +570,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "review":
         if args.review_command == "status":
-            status = review_status(read_json(args.session))
+            status = review_status(_load_review_session_or_empty(args.session))
             if args.format == "json":
                 print(json.dumps(status, indent=2, ensure_ascii=False))
             else:
@@ -560,7 +578,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.review_command == "decide":
             try:
-                session = apply_decision(read_json(args.session), args.operation_id, args.decision, args.reviewer, note=args.note, decided_at=args.decided_at)
+                session = apply_decision(
+                    _load_review_session_or_empty(args.session),
+                    args.operation_id,
+                    args.decision,
+                    args.reviewer,
+                    note=args.note,
+                    decided_at=args.decided_at,
+                )
             except ValueError as exc:
                 print(str(exc), file=sys.stderr)
                 return 1
@@ -577,7 +602,11 @@ def main(argv: list[str] | None = None) -> int:
             print(args.out)
             return 0
         if args.review_command == "next":
-            item = next_review_item(read_json(args.timeline), read_json(args.session), session_path=args.session)
+            item = next_review_item(
+                read_json(args.timeline),
+                _load_review_session_or_empty(args.session, source_timeline=args.timeline),
+                session_path=args.session,
+            )
             if args.format == "json":
                 print(json.dumps(item, indent=2, ensure_ascii=False))
             else:
