@@ -16,6 +16,7 @@
 - `podcast_auto_editor explain --with-ai` 新增 AI 解釋欄位（含 `ai_explanation`），並支援 `--dry-prompt` 安全模式。
 - `review serve` dashboard 整合 AI 草稿連結與 artifacts/context（API + HTML）資訊。
 - 新增本機 AI stack e2e 腳本：`scripts/e2e-docker-ai-stack.sh` 及對應腳本測試。
+- `podcast-auto-editor recipe export/apply`：把整個 run 目錄打包成可攜帶的 `recipe.v1.json`，可在同一份原始音檔上重放。Apply 時會驗證來源音檔 sha256，要繞過驗證請加 `--allow-media-drift`。recipe 內含 accepted timeline、config 快照、AI draft（如有），下游工具與協作者可以重現一模一樣的剪輯結果。
 
 ### 變更
 - 尚未正式發布；發布前需更新版本與驗證結果。
