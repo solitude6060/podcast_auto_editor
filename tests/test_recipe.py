@@ -156,3 +156,56 @@ def test_recipe_apply_rejects_unknown_schema_version(tmp_path):
 
     with pytest.raises(RecipeError, match="schema_version"):
         apply_recipe(recipe, media, tmp_path / "runs" / "ep1-bad-schema")
+
+
+def test_recipe_apply_rejects_null_schema_version(tmp_path):
+    """Regression for triple review: `schema_version: null` must not slip through."""
+    media, run = _make_run_dir(tmp_path)
+    recipe = tmp_path / "recipe.json"
+    export_recipe(run, recipe)
+
+    data = json.loads(recipe.read_text())
+    data["schema_version"] = None
+    recipe.write_text(json.dumps(data))
+
+    with pytest.raises(RecipeError, match="schema_version"):
+        apply_recipe(recipe, media, tmp_path / "runs" / "ep1-null-schema")
+
+
+def test_recipe_apply_raises_when_sha256_is_null_in_recipe(tmp_path):
+    """Triple-review HIGH (Gemini + Codex; MiniMax MED): a recipe whose
+    `source_media.sha256` is `null` (stripped, malformed, or adversarial)
+    must NOT silently bypass hash verification. Previously the guard
+    `if expected_sha and ...` short-circuited to False on null sha and
+    accepted any media."""
+    media, run = _make_run_dir(tmp_path)
+    recipe = tmp_path / "recipe.json"
+    export_recipe(run, recipe)
+
+    data = json.loads(recipe.read_text())
+    data["source_media"]["sha256"] = None
+    recipe.write_text(json.dumps(data))
+
+    with pytest.raises(RecipeError, match="sha256"):
+        apply_recipe(recipe, media, tmp_path / "runs" / "ep1-null-sha")
+
+
+def test_recipe_apply_raises_when_sha256_field_absent_in_recipe(tmp_path):
+    """Same security boundary as null sha, but the field is entirely absent.
+    Even with `--allow-media-drift`, a recipe without a sha256 baseline is
+    not a meaningful artefact to apply — refuse instead of silent-passing."""
+    media, run = _make_run_dir(tmp_path)
+    recipe = tmp_path / "recipe.json"
+    export_recipe(run, recipe)
+
+    data = json.loads(recipe.read_text())
+    del data["source_media"]["sha256"]
+    recipe.write_text(json.dumps(data))
+
+    with pytest.raises(RecipeError, match="sha256"):
+        apply_recipe(
+            recipe,
+            media,
+            tmp_path / "runs" / "ep1-absent-sha",
+            allow_media_drift=True,
+        )
