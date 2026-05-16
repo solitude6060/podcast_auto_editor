@@ -6,8 +6,9 @@ import shlex
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from .explain import explain_operation
 from .review_session import apply_decision, next_review_item, review_status, write_review_session
 from .timeline import read_json
 
@@ -59,21 +60,69 @@ def _relative_path(root: Path, value: str | Path | None) -> str | None:
         return str(value).replace("\\", "/")
 
 
-def load_review_context(run_dir: str | Path) -> dict[str, Any]:
+def load_review_context(run_dir: str | Path, *, filter_type: str | None = None) -> dict[str, Any]:
     root = Path(run_dir)
     timeline_path, session_path, ai_draft_path = _paths(root)
     timeline = read_json(timeline_path)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []}
     operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
     ai_draft = _relative_path(root, ai_draft_path) if ai_draft_path.exists() else None
+    if filter_type:
+        filtered_ops = [op for op in operations if op.get("type") == filter_type]
+        timeline_for_next = {**timeline, "operations": filtered_ops}
+    else:
+        timeline_for_next = timeline
     return {
         "run_dir": str(root),
         "timeline": str(timeline_path),
         "session": str(session_path),
         "ai_draft": ai_draft,
+        "filter": filter_type,
         "status": review_status(session, total_operations=len(operations)),
-        "next": next_review_item(timeline, session, session_path=str(session_path)),
+        "next": next_review_item(timeline_for_next, session, session_path=str(session_path)),
     }
+
+
+def find_operation(run_dir: str | Path, operation_id: str) -> dict[str, Any] | None:
+    """Return the canonical per-operation payload for ``operation_id``, or None.
+
+    The shape mirrors ``review_session.next_review_item`` so the dashboard's
+    detail pane and the `/api/status`-driven `next` pane can share rendering
+    logic. Fields: operation_id, type, state, risk, confidence, source,
+    detector, reason_code, evidence_text, required_review, preview_ref,
+    removed_ref, decision_commands.
+    """
+    root = Path(run_dir)
+    timeline_path, session_path, _ = _paths(root)
+    if not timeline_path.exists():
+        return None
+    timeline = read_json(timeline_path)
+    operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
+    for op in operations:
+        if str(op.get("operation_id")) != operation_id:
+            continue
+        explanation = explain_operation(timeline, operation_id)
+        artifact_refs = explanation.get("artifact_refs", {}) if isinstance(explanation.get("artifact_refs"), dict) else {}
+        return {
+            "operation_id": operation_id,
+            "type": op.get("type"),
+            "state": op.get("state"),
+            "risk": op.get("risk"),
+            "confidence": op.get("confidence"),
+            "source": op.get("source_range"),
+            "detector": explanation.get("detector"),
+            "reason_code": explanation.get("reason_code"),
+            "evidence_text": explanation.get("evidence_text"),
+            "required_review": explanation.get("required_review"),
+            "preview_ref": artifact_refs.get("preview"),
+            "removed_ref": artifact_refs.get("removed"),
+            "decision_commands": {
+                "accept": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision accept --reviewer <name>",
+                "reject": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision reject --reviewer <name>",
+                "undo": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision undo --reviewer <name>",
+            },
+        }
+    return None
 
 
 def handle_api_decision(run_dir: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -208,6 +257,19 @@ def build_review_app_html(run_dir: str | Path) -> str:
       document.getElementById('note').value = '';
     }}
 
+    document.addEventListener('keydown', (event) => {{
+      const tag = event.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (event.key === 'a') decideCurrent('accept');
+      else if (event.key === 'r') decideCurrent('reject');
+      else if (event.key === 'u') decideCurrent('undo');
+      // j and k both advance to the next pending operation. Real prev
+      // navigation is reserved for a follow-up PR — kept consistent so muscle
+      // memory does not accidentally regress a decision.
+      else if (event.key === 'j') refresh();
+      else if (event.key === 'k') refresh();
+    }});
+
     refresh();
   </script>
 </body>
@@ -278,7 +340,8 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib hook name
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/index.html"}:
             body = build_review_app_html(self.run_dir).encode()
             self.send_response(200)
@@ -288,7 +351,30 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/api/status":
-            self._send_json(load_review_context(self.run_dir))
+            params = parse_qs(parsed.query)
+            filter_values = params.get("filter") or []
+            filter_type = filter_values[0] if filter_values else None
+            self._send_json(load_review_context(self.run_dir, filter_type=filter_type))
+            return
+        if path.startswith("/api/operation/"):
+            raw_id = path[len("/api/operation/"):]
+            # Decode percent-encoded variants (e.g. %2e%2e, %2F) before checking
+            # the deny list so encoded traversal cannot bypass the guard.
+            operation_id = unquote(raw_id)
+            if (
+                not operation_id
+                or "/" in operation_id
+                or "\\" in operation_id
+                or operation_id in {".", ".."}
+                or any(ord(ch) < 0x20 for ch in operation_id)
+            ):
+                self.send_error(404)
+                return
+            op = find_operation(self.run_dir, operation_id)
+            if op is None:
+                self.send_error(404)
+                return
+            self._send_json(op)
             return
         artifact = _resolve_artifact_request(self.run_dir, path)
         if artifact is not None:
