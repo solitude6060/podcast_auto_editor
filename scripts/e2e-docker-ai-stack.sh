@@ -69,12 +69,16 @@ wait_for_running_service() {
   return 1
 }
 
+full_stack_ok=1
 if ! docker compose -f "$COMPOSE_FILE" --profile ai up -d ollama app; then
+  full_stack_ok=0
   echo "Failed to start full stack; trying app-only startup."
   run_or_exit "docker compose app startup" docker compose -f "$COMPOSE_FILE" --profile ai up -d --no-deps app
 fi
 
-wait_for_running_service ollama
+if [[ "$full_stack_ok" == "1" ]]; then
+  wait_for_running_service ollama
+fi
 wait_for_running_service app
 
 run_or_exit \

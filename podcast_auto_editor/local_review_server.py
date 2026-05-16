@@ -12,12 +12,37 @@ from .review_session import apply_decision, next_review_item, review_status, wri
 from .timeline import read_json
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+ARTIFACT_ALLOWLIST: tuple[str, ...] = (
+    "timeline.proposed.v1.json",
+    "review-session.json",
+    "ai/ai-draft.v1.json",
+)
 
 
 def validate_review_host(host: str) -> str:
     if host not in LOCAL_HOSTS:
         raise ValueError("review server binds to localhost only; use 127.0.0.1 or localhost")
     return host
+
+
+def _resolve_artifact_request(run_dir: Path, request_path: str) -> Path | None:
+    """Return the on-disk path for an allowlisted artifact, or None.
+
+    Only filenames in ARTIFACT_ALLOWLIST are served, and the resolved path
+    must stay inside run_dir to prevent path traversal.
+    """
+    relative = request_path.lstrip("/")
+    if relative not in ARTIFACT_ALLOWLIST:
+        return None
+    run_root = run_dir.resolve()
+    candidate = (run_root / relative).resolve()
+    try:
+        candidate.relative_to(run_root)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
 
 
 def _paths(run_dir: str | Path) -> tuple[Path, Path, Path]:
@@ -264,6 +289,15 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             self._send_json(load_review_context(self.run_dir))
+            return
+        artifact = _resolve_artifact_request(self.run_dir, path)
+        if artifact is not None:
+            body = artifact.read_bytes()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         self.send_error(404)
 

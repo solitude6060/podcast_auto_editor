@@ -455,18 +455,42 @@ def test_ai_draft_cli_dry_prompt_writes_payload_json_and_file(tmp_path, capsys):
         "type": "speech_cut",
         "state": "proposed",
         "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "medium",
+        "confidence": 0.8,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
     })
     timeline["operations"].append({
         "operation_id": "retake1",
         "type": "retake_cut",
         "state": "proposed",
         "source_range": {"start": 2.0, "end": 2.8},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "low",
+        "confidence": 0.9,
+        "provenance": {"detector": "retake.heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
     })
     timeline["operations"].append({
         "operation_id": "silence1",
         "type": "silence_cut",
         "state": "proposed",
         "source_range": {"start": 3.0, "end": 3.4},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "silence.heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
     })
     timeline_path = tmp_path / "timeline.json"
     write_json(timeline_path, timeline)
@@ -501,6 +525,14 @@ def test_ai_draft_cli_dry_run_alias_uses_dry_prompt_behavior(tmp_path, capsys):
         "type": "speech_cut",
         "state": "proposed",
         "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "medium",
+        "confidence": 0.8,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
     })
     timeline_path = tmp_path / "timeline.json"
     write_json(timeline_path, timeline)

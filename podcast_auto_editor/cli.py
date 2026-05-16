@@ -681,6 +681,15 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 transcript_segments = _load_optional_transcript(args.transcript_json)
                 timeline = read_json(args.timeline)
+            except (OSError, json.JSONDecodeError, TranscriptValidationError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            timeline_errors = validate_timeline(timeline)
+            if timeline_errors:
+                for error in timeline_errors:
+                    print(error, file=sys.stderr)
+                return 1
+            try:
                 payload = generate_ai_draft(
                     timeline=timeline,
                     transcript_segments=transcript_segments,
