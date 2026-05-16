@@ -125,6 +125,27 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+## 中文 podcast（drop-in：Belle-whisper-large-v3-zh）
+
+`faster-whisper-local` provider 的 `--model` 接受任何 HuggingFace 相容的模型 ID。中文場景可以直接換到 `BELLE-2/Belle-whisper-large-v3-zh`（Apache-2.0），pipeline 其他部分不用動：
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider faster-whisper-local \
+  --model BELLE-2/Belle-whisper-large-v3-zh \
+  --device cuda --compute-type float16 \
+  --out transcript.json
+```
+
+對比 vanilla `whisper-large-v3` 的 CER 改善（模型卡數據）：
+- AISHELL-1：8.085 → **2.781**
+- AISHELL-2：5.475 → **3.786**
+- WenetSpeech net：11.72 → **8.865**
+- WenetSpeech meeting：20.15 → **11.246**
+- HKUST：28.597 → **16.440**
+
+注意事項：只用簡體中文資料訓練（繁中 / 台灣國語未驗證）。要更高準確率 + 原生支援 20 分鐘長音檔的中文 ASR，看 `docs/research/2026-05-17-chinese-asr-models.md`，PR-X2 會加 Qwen3-ASR provider。
+
 ## Diarization 講者分離（可選）
 
 工具可以幫每個 transcript cue 標上 `speaker_id`（哪個人講的），讓 AI 章節草稿、show notes、per-speaker filler 偵測都能正確歸屬。Provider 介面是可換的：
