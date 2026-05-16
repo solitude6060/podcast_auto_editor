@@ -99,25 +99,51 @@ def _operation_payloads(operations: list[dict[str, Any]] | None) -> list[dict[st
     return output
 
 
+def _format_speakers_block(speaker_segments: list[dict[str, Any]] | None, speaker_labels: dict[str, str] | None) -> str:
+    """Build the optional 'Speakers:' prompt block from speaker_segments + labels."""
+    if not speaker_segments:
+        return ""
+    seen: dict[str, str] = {}
+    for seg in speaker_segments:
+        spk = str(seg.get("speaker_id", "")).strip()
+        if not spk or spk in seen:
+            continue
+        label = (speaker_labels or {}).get(spk, spk)
+        seen[spk] = label
+    if not seen:
+        return ""
+    lines = [f"- {spk} = {label}" for spk, label in seen.items()]
+    return "Speakers:\n" + "\n".join(lines) + "\n\n"
+
+
 def _build_draft_prompt(
     *,
     transcript_segments: list[dict[str, Any]],
     operation_payloads: list[dict[str, Any]],
     max_chapters: int,
+    speaker_segments: list[dict[str, Any]] | None = None,
+    speaker_labels: dict[str, str] | None = None,
 ) -> str:
     transcript = _transcript_excerpt(transcript_segments)
     operation_context = json.dumps(operation_payloads, ensure_ascii=False, indent=2)
+    speakers_block = _format_speakers_block(speaker_segments, speaker_labels)
+    chapter_schema_hint = (
+        "title/start/end/why_merged/speaker_id (speaker_id may be null when unclear)"
+        if speakers_block
+        else "title/start/end/why_merged"
+    )
     return (
         "You are the podcast AI drafting assistant for post-production review.\n"
         "Given transcript and candidate edit operations, propose review-safe suggestions only.\n\n"
         f"Return JSON object with keys: chapters, summary, show_notes, retake_decisions, operation_explanations.\n"
-        f"- chapters: up to {max_chapters} items with title/start/end/why_merged\n"
+        f"- chapters: up to {max_chapters} items with {chapter_schema_hint}\n"
         "- summary: object with title, one_paragraph, key_points\n"
         "- show_notes: array of public-facing bullet strings\n"
         "- retake_decisions: array with operation_id, suggested_action, rationale, confidence, reasoning\n"
         "- operation_explanations: array with operation_id, why_risky, llm_reason, reasoning\n\n"
         "Use only provided operation ids.\n"
         "suggested_action must be one of {keep, probably_delete, manual_review}.\n\n"
+        f"{speakers_block}"
         f"Transcript:\n{transcript or 'No transcript available'}\n\n"
         f"Operation candidates:\n{operation_context}"
     )
@@ -222,12 +248,19 @@ def _normalize_chapter(idx: int, chapter: dict[str, Any]) -> dict[str, Any]:
         end_value = float(end)
     except (TypeError, ValueError):
         end_value = 0.0
+    raw_speaker = chapter.get("speaker_id")
+    if raw_speaker is None:
+        speaker_id: str | None = None
+    else:
+        speaker_text = str(raw_speaker).strip()
+        speaker_id = speaker_text or None
     return {
         "index": idx + 1,
         "title": str(chapter.get("title") or f"Chapter {idx + 1}").strip()[:180],
         "start": start_value,
         "end": end_value,
         "why_merged": str(chapter.get("why_merged") or chapter.get("reason") or "AI draft"),
+        "speaker_id": speaker_id,
     }
 
 
@@ -284,6 +317,8 @@ def generate_ai_draft(
     no_net: bool = False,
     api_key: str | None = None,
     timeline_path: str | Path | None = None,
+    speaker_segments: list[dict[str, Any]] | None = None,
+    speaker_labels: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if not transcript_segments:
         raise ValueError("transcript segments are required for AI draft generation")
@@ -303,8 +338,15 @@ def generate_ai_draft(
         transcript_segments=transcript_segments,
         operation_payloads=_operation_payloads(candidates),
         max_chapters=max_chapters,
+        speaker_segments=speaker_segments,
+        speaker_labels=speaker_labels,
     )
     payload = _build_payload_json(model=model, prompt=prompt, max_tokens=900)
+    distinct_speakers = {
+        str(seg.get("speaker_id"))
+        for seg in (speaker_segments or [])
+        if seg.get("speaker_id")
+    }
 
     if dry_prompt or no_net:
         return {
@@ -322,6 +364,8 @@ def generate_ai_draft(
             "retake_decisions": [],
             "operation_explanations": [],
             "metadata": {
+                "speaker_count": len(distinct_speakers),
+                "speaker_labels": dict(speaker_labels) if speaker_labels else None,
                 "source_timeline": str(timeline_path) if timeline_path else None,
                 "source_segment_count": len(transcript_segments),
                 "candidate_operation_count": len(candidates),
