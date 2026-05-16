@@ -1,0 +1,58 @@
+# .claudeignore — paths the agent should not read by default.
+# Same idea as .gitignore but for Claude Code's Read/Grep/Glob tools.
+# Goal: avoid wasted tokens on agent state, build outputs, caches, and
+# large binary artefacts that aren't useful for code reasoning.
+
+# Agent / harness state (must never leak into context)
+.omx/
+.omc/
+.claude/
+
+# Python build / cache / virtual env
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Generated run outputs (transcripts / exports / previews live here; we
+# never want the agent to fetch a 200 MB rendered WAV during reasoning)
+runs/
+artifacts/
+
+# Local installer / demo media outputs
+demo-fixtures/
+demo-output/
+
+# Large media inputs — should never be in the repo, but cheap to guard.
+# If the user explicitly references a path, the agent can still Read it
+# (Read accepts absolute paths and bypasses ignore lists by design).
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.mov
+*.flac
+*.opus
+
+# Model weights / pretrained caches (if pyannote / whisper land locally)
+*.bin
+*.gguf
+*.ckpt
+*.safetensors
+models/
+weights/
+*.pyannote/
+.huggingface/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.tmp
+
+# Triple-review temp prompts + reviewer transcripts (stays in /tmp; in case
+# anyone copies them into the tree)
+pr*_review_prompt.txt
+pr*_review_*.out
