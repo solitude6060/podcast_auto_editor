@@ -55,6 +55,38 @@ def test_review_next_works_when_session_file_missing(tmp_path, capsys):
     assert payload["operation_id"] == "silence_only_op"
 
 
+def test_review_decide_works_when_session_file_missing_and_writes_clean_source_timeline(tmp_path, capsys):
+    """Regression for PR #26 triple review: `review decide` against a missing
+    session file must (a) succeed without crash, (b) actually persist the
+    session, and (c) NOT record the session file path as `source_timeline` —
+    that would corrupt the schema vs the dashboard's missing-session shape."""
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "decide",
+        str(session_path),
+        "--operation-id",
+        "silence_op_1",
+        "--decision",
+        "accept",
+        "--reviewer",
+        "producer",
+    ])
+
+    assert rc == 0
+    assert session_path.exists()
+    session = json.loads(session_path.read_text())
+    assert session["schema_version"] == "review-session.v1"
+    assert session["source_timeline"] != str(session_path), (
+        "decide on missing session must not persist the session file path as source_timeline"
+    )
+    assert session["decisions"][0]["operation_id"] == "silence_op_1"
+    assert session["decisions"][0]["decision"] == "accept"
+    assert session["decisions"][0]["reviewer"] == "producer"
+
+
 def test_review_status_works_when_session_file_missing(tmp_path, capsys):
     """Companion to review-next regression: status against a fresh run dir
     must produce an empty-decisions summary instead of a traceback."""
