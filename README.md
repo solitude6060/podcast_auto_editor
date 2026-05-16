@@ -96,6 +96,46 @@ Speech cleanup heuristics can propose filler or false-start removals as `speech_
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
 
+## AI assist and explainability
+
+Use `ai draft` to generate review-only artifact suggestions from timeline operations + transcript:
+
+```bash
+uv run python -m podcast_auto_editor ai draft \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+The draft output is written to `ai/ai-draft.v1.json` under the timeline directory by default.
+
+`--dry-run` is an alias for `--dry-prompt` (and implied `--no-net`) for offline or CI-safe runs.
+
+For per-operation explainability, use:
+
+```bash
+uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.json \
+  --operation-id speech_abc123 \
+  --with-ai \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+The server-side AI calls are disabled automatically in `--dry-prompt` / `--dry-run`.
+
+## Docker AI-stack e2e smoke check
+
+Run the local AI stack e2e check script:
+
+```bash
+./scripts/e2e-docker-ai-stack.sh --dry-run
+./scripts/e2e-docker-ai-stack.sh
+```
+
+The script brings up Compose app + ollama profiles (when available), runs a smoke CLI check, and performs clean shutdown.
+
 ## Project and batch dry-run workflow
 
 Use `project init` to create a local project manifest outside `.omx`:
@@ -146,6 +186,7 @@ uv run python -m podcast_auto_editor review launcher runs/episode --out runs/epi
 ```
 
 `review serve` binds to `127.0.0.1` by default and writes decisions to the same `review-session.json` used by the CLI.
+`review serve` also exposes a compact Run Dashboard (status, next operation, AI draft link/status, and artifact links).
 `review launcher` writes local launcher files that start the same localhost-only review server; generated launchers are local artifacts and should not be committed.
 
 ## AI resource profiles
