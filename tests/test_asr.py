@@ -215,6 +215,94 @@ def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
     assert captured["options"] == {"model": "large-v3", "device": "cuda", "compute_type": "float16"}
 
 
+def test_provider_names_include_qwen3_asr_local():
+    """PR-X2: Qwen3-ASR provider registered as `qwen3-asr-local`."""
+    from podcast_auto_editor.asr import provider_names
+
+    assert "qwen3-asr-local" in provider_names()
+
+
+def test_qwen3_asr_provider_missing_dependency_does_not_write(tmp_path, monkeypatch):
+    """When `qwen_asr` is not installed, transcribe_to_file must raise
+    ASRProviderError with a clear install hint AND not write any output."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", None)  # type: ignore[arg-type]
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        assert "qwen-asr" in str(exc).lower()
+    else:
+        raise AssertionError("expected ASRProviderError when qwen_asr import fails")
+    assert not out.exists(), "transcribe_to_file must not write when provider raises"
+
+
+def test_qwen3_asr_provider_normalizes_segments(tmp_path, monkeypatch):
+    """Fake `qwen_asr.transcribe` returning a list of segments must flow
+    through the provider normalised into transcript.v1 shape."""
+    import sys
+    import types
+
+    captured: dict = {}
+
+    def fake_transcribe(audio_path, **kwargs):
+        captured["audio_path"] = audio_path
+        captured["kwargs"] = kwargs
+        return [
+            {"start": 0.0, "end": 1.25, "text": "你好"},
+            {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
+        ]
+
+    fake_module = types.SimpleNamespace(transcribe=fake_transcribe)
+    monkeypatch.setitem(sys.modules, "qwen_asr", fake_module)
+
+    out = tmp_path / "transcript.json"
+    cli.transcribe_to_file(
+        tmp_path / "episode.wav",
+        out,
+        provider_name="qwen3-asr-local",
+        model="Qwen/Qwen3-ASR-1.7B",
+        device="cuda",
+    )
+
+    data = json.loads(out.read_text())
+    assert data["provider"] == "qwen3-asr-local"
+    assert data["segments"] == [
+        {"start": 0.0, "end": 1.25, "text": "你好"},
+        {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
+    ]
+    assert captured["kwargs"]["model"] == "Qwen/Qwen3-ASR-1.7B"
+    assert captured["kwargs"]["device"] == "cuda"
+
+
+def test_qwen3_asr_provider_rejects_module_without_transcribe(tmp_path, monkeypatch):
+    """If a future qwen_asr release renames its entry point, surface a clear
+    error instead of an AttributeError traceback."""
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", types.SimpleNamespace())
+
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        assert "transcribe" in msg or "qwen-asr v1" in msg
+    else:
+        raise AssertionError("expected ASRProviderError when qwen_asr lacks transcribe entry")
+    assert not out.exists()
+
+
 def test_provider_names_include_optional_whisper_cpp():
     from podcast_auto_editor.asr import provider_names
 
