@@ -158,7 +158,20 @@ Reported CER improvement vs vanilla `whisper-large-v3` (model card):
 - WenetSpeech meeting: 20.15 → **11.246**
 - HKUST: 28.597 → **16.440**
 
-Trade-offs: trained on simplified Chinese only (繁中 / Taiwan Mandarin unverified). For higher-accuracy Chinese ASR with native long-audio support (20-min single-segment), see `docs/research/2026-05-17-chinese-asr-models.md` for the Qwen3-ASR provider planned in PR-X2.
+Trade-offs: trained on simplified Chinese only (繁中 / Taiwan Mandarin unverified).
+
+For higher-accuracy Chinese ASR with native long-audio support (20-min single-segment), use the **`qwen3-asr-local`** provider (added in PR-X2):
+
+```bash
+uv add qwen-asr  # optional dep; vLLM backend: uv add 'qwen-asr[vllm]'
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider qwen3-asr-local \
+  --model Qwen/Qwen3-ASR-1.7B \
+  --device cuda \
+  --out transcript.json
+```
+
+Chinese WER vs whisper-large-v3 (per Qwen3-ASR model card): WenetSpeech meeting 5.88 vs 19.11; AISHELL-2 2.71 vs 5.06; Taiwan CV-zh-tw 3.77. See `docs/research/2026-05-17-chinese-asr-models.md` for the full landscape. The model card caps single-segment audio at 20 minutes; chunk longer episodes before calling.
 
 ## Diarization (optional)
 

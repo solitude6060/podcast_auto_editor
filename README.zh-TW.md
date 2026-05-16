@@ -144,7 +144,20 @@ uv run python -m podcast_auto_editor transcribe input.wav \
 - WenetSpeech meeting：20.15 → **11.246**
 - HKUST：28.597 → **16.440**
 
-注意事項：只用簡體中文資料訓練（繁中 / 台灣國語未驗證）。要更高準確率 + 原生支援 20 分鐘長音檔的中文 ASR，看 `docs/research/2026-05-17-chinese-asr-models.md`，PR-X2 會加 Qwen3-ASR provider。
+注意事項：只用簡體中文資料訓練（繁中 / 台灣國語未驗證）。
+
+要更高準確率 + 原生支援 20 分鐘長音檔的中文 ASR，用 **`qwen3-asr-local`** provider（PR-X2 加的）：
+
+```bash
+uv add qwen-asr  # 可選 dep；vLLM 後端：uv add 'qwen-asr[vllm]'
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider qwen3-asr-local \
+  --model Qwen/Qwen3-ASR-1.7B \
+  --device cuda \
+  --out transcript.json
+```
+
+對比 whisper-large-v3 的中文 WER（Qwen3-ASR 模型卡）：WenetSpeech meeting 5.88 vs 19.11；AISHELL-2 2.71 vs 5.06；台灣國語 CV-zh-tw 3.77。完整評估見 `docs/research/2026-05-17-chinese-asr-models.md`。模型卡單段音檔上限 20 分鐘，長 podcast 要先切片再呼叫。
 
 ## Diarization 講者分離（可選）
 
