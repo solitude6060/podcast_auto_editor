@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -24,10 +25,16 @@ class DiarizationProviderError(DiarizationError):
 def _coerce_seconds(value: Any, field: str, idx: int) -> float:
     if value is None:
         raise DiarizationError(f"segment[{idx}].{field} is required")
+    # bool is a subclass of int; treat it as a type error rather than silently mapping True/False to 1.0/0.0 seconds.
+    if isinstance(value, bool):
+        raise DiarizationError(f"segment[{idx}].{field} must be numeric, not bool: {value!r}")
     try:
-        return float(value)
+        seconds = float(value)
     except (TypeError, ValueError) as exc:
         raise DiarizationError(f"segment[{idx}].{field} must be numeric: {value!r}") from exc
+    if not math.isfinite(seconds):
+        raise DiarizationError(f"segment[{idx}].{field} must be a finite number: {value!r}")
+    return seconds
 
 
 def _coerce_confidence(value: Any) -> float:
@@ -64,6 +71,8 @@ def normalize_speaker_segments(raw: list[Any]) -> list[dict[str, Any]]:
             raise DiarizationError(f"segment[{idx}].speaker_id is required")
         start = _coerce_seconds(raw_seg["start"], "start", idx)
         end = _coerce_seconds(raw_seg["end"], "end", idx)
+        if start < 0:
+            raise DiarizationError(f"segment[{idx}].start must be >= 0")
         if end <= start:
             raise DiarizationError(f"segment[{idx}].end must be after start")
         speaker_id = raw_seg["speaker_id"]
@@ -108,7 +117,15 @@ class MockDiarizationProvider(DiarizationProvider):
     def diarize(self, audio_path: str | Path, **options: Any) -> list[dict[str, Any]]:  # noqa: ARG002
         if self.config_path is None:
             return []
-        data = json.loads(Path(self.config_path).read_text(encoding="utf-8"))
+        config_path = Path(self.config_path)
+        try:
+            raw_text = config_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise DiarizationError(f"mock diarization config not readable: {config_path}: {exc}") from exc
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise DiarizationError(f"mock diarization config is not valid JSON: {config_path}: {exc.msg}") from exc
         if not isinstance(data, dict):
             raise DiarizationError("mock diarization config must be a JSON object")
         segments = data.get("segments", [])

@@ -116,6 +116,39 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+## Diarization 講者分離（可選）
+
+工具可以幫每個 transcript cue 標上 `speaker_id`（哪個人講的），讓 AI 章節草稿、show notes、per-speaker filler 偵測都能正確歸屬。Provider 介面是可換的：
+
+- **`mock`**（離線、內建）— 讀一份 JSON config 把預期 segments 直接回傳。CI 跟沒有 HuggingFace token 的開發機都用這個。
+- **`pyannote`** — 用 lazy import 包裝 `pyannote-audio` 3.x。實機整合留到後續 PR；現在跑會丟一個清楚的 `DiarizationProviderError`，訊息會告訴你是要先 `uv add pyannote-audio` 還是等實機整合 PR 落地。
+
+```bash
+# Mock provider — 從 JSON config 讀 segments（離線）
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider mock \
+  --config diarization-config.json \
+  --out runs/episode/speaker_segments.v1.json
+
+# Pyannote provider — 需要 `uv add pyannote-audio` 跟 HF_TOKEN
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider pyannote \
+  --out runs/episode/speaker_segments.v1.json
+```
+
+Mock config 格式（`diarization-config.json`）：
+
+```json
+{
+  "segments": [
+    {"start": 0.0,  "end": 12.5, "speaker_id": "spk0", "confidence": 0.95},
+    {"start": 12.5, "end": 30.0, "speaker_id": "spk1", "confidence": 0.92}
+  ]
+}
+```
+
+輸出（`speaker_segments.v1.json`）：`{schema_version, audio_path, segments: [{start, end, speaker_id, confidence}, ...]}`。JSON 用 sorted-keys + indent=2，git diff 友善。`transcript.v1` cue 可以選擇性帶 `speaker_id` 欄位，沒帶的舊 transcript 一樣會 validate。
+
 ## 可重現的剪輯紀錄（`recipe export` / `recipe apply`）
 
 可以把整個 run 目錄打包成一份可攜帶的 `recipe.v1.json`，內容包含原始音檔的 sha256、accepted timeline、config 快照、以及（如果有的話）AI 草稿。把 recipe 提交進 git，幾個月後對同一份原始音檔 replay 一次，就會得到一模一樣的剪輯成果。
