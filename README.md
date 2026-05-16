@@ -40,6 +40,15 @@ The tool:
 - **Not a voice cloner.** Synthetic voice generation is intentionally out of scope.
 - **Not a publishing pipeline.** RSS / Spotify / Apple uploads happen elsewhere.
 
+## Install (Linux + uv)
+
+```bash
+bash scripts/install.sh
+uv run python -m podcast_auto_editor quickstart
+```
+
+`install.sh` runs `uv sync --group dev`, generates demo fixtures if `ffmpeg` is present, and prints the next steps. `quickstart` then generates the demo audio, drives the pipeline against it, and prints the run directory plus follow-up commands (`report`, `review serve`). macOS and WSL paths are documented here but not yet verified by CI.
+
 ## Quickstart
 
 ```bash

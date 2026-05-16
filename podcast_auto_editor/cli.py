@@ -238,6 +238,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_demo = sub.add_parser("demo-fixtures", help="Generate deterministic demo media fixtures with ffmpeg when available")
     p_demo.add_argument("--out", default="demo-fixtures")
+
+    p_quickstart = sub.add_parser("quickstart", help="Run an end-to-end demo: fixtures + pipeline + next-step hints")
+    p_quickstart.add_argument("--out", default="quickstart", help="Output root for demo fixtures and run artefacts")
+    p_quickstart.add_argument("--episode-id", default="demo", help="Episode id under <out>/runs/<episode-id>")
     return parser
 
 
@@ -937,6 +941,25 @@ def main(argv: list[str] | None = None) -> int:
         paths = make_demo_fixtures(args.out)
         for kind, path in paths.items():
             print(f"{kind}: {path}")
+        return 0
+    if args.command == "quickstart":
+        out_root = Path(args.out)
+        out_root.mkdir(parents=True, exist_ok=True)
+        media_dir = out_root / "media"
+        runs_dir = out_root / "runs"
+        try:
+            paths = make_demo_fixtures(str(media_dir))
+        except FileNotFoundError as exc:
+            print(f"quickstart needs ffmpeg/ffprobe on PATH to generate demo media: {exc}", file=sys.stderr)
+            return 1
+        audio_path = Path(paths.get("audio", media_dir / "demo-silence.wav"))
+        run_paths_obj = run_pipeline(audio_path, runs_dir, load_config(), episode_id=args.episode_id)
+        print(f"demo media: {audio_path}")
+        print(f"run dir:    {run_paths_obj.root}")
+        print()
+        print("Next:")
+        print(f"  uv run python -m podcast_auto_editor report {run_paths_obj.root} --format markdown")
+        print(f"  uv run python -m podcast_auto_editor review serve {run_paths_obj.root}")
         return 0
     parser.error("unreachable")
     return 2

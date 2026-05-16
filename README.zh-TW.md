@@ -40,6 +40,15 @@ English version: [`README.md`](README.md)
 - **不是聲音克隆工具。** 故意不做合成聲音。
 - **不是發布工具。** RSS / Spotify / Apple 上架請用其他工具。
 
+## 安裝（Linux + uv）
+
+```bash
+bash scripts/install.sh
+uv run python -m podcast_auto_editor quickstart
+```
+
+`install.sh` 會跑 `uv sync --group dev`，有 ffmpeg 的話順手產生 demo fixtures，並印出下一步建議。然後 `quickstart` 會產生 demo 音檔、對它跑 pipeline、印出 run 目錄跟建議的後續指令（`report`、`review serve`）。macOS 跟 WSL 的安裝路徑這邊只記錄，CI 尚未驗證。
+
 ## 快速開始
 
 ```bash
