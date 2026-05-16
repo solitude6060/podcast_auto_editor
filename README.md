@@ -130,6 +130,25 @@ Speech cleanup heuristics can propose filler or false-start removals as `speech_
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
 
+## Reproducible edits with `recipe export` / `recipe apply`
+
+A run directory can be bundled into a portable `recipe.v1.json` artefact that captures the source media sha256, the accepted timeline, the config snapshot, and the optional AI draft. Commit the recipe to git; later, replay it against the same source audio to reproduce the same edits deterministically.
+
+```bash
+uv run python -m podcast_auto_editor recipe export \
+  --run runs/episode \
+  --out runs/episode/recipe.v1.json
+
+uv run python -m podcast_auto_editor recipe apply \
+  --recipe runs/episode/recipe.v1.json \
+  --media source-episode.wav \
+  --out runs/episode-replayed
+```
+
+`apply` verifies the source media sha256 against the recipe and refuses to proceed on mismatch. If you intentionally want to apply the same recipe to a re-encoded or modified copy, pass `--allow-media-drift` — the manifest records that the override was used.
+
+The recipe never embeds the audio itself; only the path, sha256, and duration. The accepted timeline is embedded inline so the recipe is self-contained.
+
 ## AI assist and explainability
 
 Use `ai draft` to generate review-only artifact suggestions from timeline operations + transcript:

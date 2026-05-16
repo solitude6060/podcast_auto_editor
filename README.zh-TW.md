@@ -116,6 +116,25 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+## 可重現的剪輯紀錄（`recipe export` / `recipe apply`）
+
+可以把整個 run 目錄打包成一份可攜帶的 `recipe.v1.json`，內容包含原始音檔的 sha256、accepted timeline、config 快照、以及（如果有的話）AI 草稿。把 recipe 提交進 git，幾個月後對同一份原始音檔 replay 一次，就會得到一模一樣的剪輯成果。
+
+```bash
+uv run python -m podcast_auto_editor recipe export \
+  --run runs/episode \
+  --out runs/episode/recipe.v1.json
+
+uv run python -m podcast_auto_editor recipe apply \
+  --recipe runs/episode/recipe.v1.json \
+  --media source-episode.wav \
+  --out runs/episode-replayed
+```
+
+`apply` 會用 recipe 裡的 sha256 驗證來源音檔，不符會直接拒絕。如果你真的要對重新編碼過或被修改過的音檔套用同一份 recipe，加上 `--allow-media-drift` — 新產生的 manifest 會記錄這個覆寫動作。
+
+Recipe 本身不會把音檔內容塞進去，只記路徑、sha256、跟長度。Accepted timeline 是直接內嵌的，所以 recipe 是自給自足的。
+
 ## AI 輔助與可解釋性
 
 可用 `ai draft` 由 timeline + transcript 產生「僅供 review」的建議草稿：

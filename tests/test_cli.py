@@ -55,6 +55,105 @@ def test_review_next_works_when_session_file_missing(tmp_path, capsys):
     assert payload["operation_id"] == "silence_only_op"
 
 
+def test_recipe_export_and_apply_round_trip_via_cli(tmp_path, capsys):
+    """Integration regression for PR-G: `recipe export` then `recipe apply`
+    must reproduce the same accepted timeline byte-for-byte via the CLI."""
+    media = tmp_path / "input.wav"
+    media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt round-trip-fixture")
+    run_dir = tmp_path / "runs" / "ep1"
+    run_dir.mkdir(parents=True)
+
+    timeline = create_noop_timeline(
+        {"path": str(media), "duration": 4.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_aaa",
+        "type": "silence_cut",
+        "source_range": {"start": 1.0, "end": 2.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "accepted",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    write_json(run_dir / "timeline.accepted.v1.json", timeline)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "input": str(media),
+        "episode_id": "ep1",
+        "config": {"quality": {"stereo_loudness_lufs": -16.0}},
+    }))
+
+    recipe_path = tmp_path / "recipe.json"
+    rc_export = cli.main(["recipe", "export", "--run", str(run_dir), "--out", str(recipe_path)])
+    assert rc_export == 0
+    assert recipe_path.exists()
+
+    replay_dir = tmp_path / "runs" / "ep1-replay"
+    rc_apply = cli.main([
+        "recipe", "apply",
+        "--recipe", str(recipe_path),
+        "--media", str(media),
+        "--out", str(replay_dir),
+    ])
+    assert rc_apply == 0
+    original = json.loads((run_dir / "timeline.accepted.v1.json").read_text())
+    replayed = json.loads((replay_dir / "timeline.accepted.v1.json").read_text())
+    assert original == replayed
+
+
+def test_recipe_apply_cli_rejects_hash_mismatch_without_drift_flag(tmp_path, capsys):
+    """CLI must surface RecipeError as a clean non-zero return + stderr."""
+    media = tmp_path / "input.wav"
+    media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt original")
+    run_dir = tmp_path / "runs" / "ep1"
+    run_dir.mkdir(parents=True)
+    timeline = create_noop_timeline(
+        {"path": str(media), "duration": 4.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_bbb",
+        "type": "silence_cut",
+        "source_range": {"start": 1.0, "end": 2.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "accepted",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    write_json(run_dir / "timeline.accepted.v1.json", timeline)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "input": str(media),
+        "episode_id": "ep1",
+        "config": {},
+    }))
+
+    recipe_path = tmp_path / "recipe.json"
+    assert cli.main(["recipe", "export", "--run", str(run_dir), "--out", str(recipe_path)]) == 0
+
+    other_media = tmp_path / "modified.wav"
+    other_media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt different-bytes")
+
+    rc = cli.main([
+        "recipe", "apply",
+        "--recipe", str(recipe_path),
+        "--media", str(other_media),
+        "--out", str(tmp_path / "runs" / "fail"),
+    ])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "sha256 mismatch" in err
+
+
 def test_review_decide_works_when_session_file_missing_and_writes_clean_source_timeline(tmp_path, capsys):
     """Regression for PR #26 triple review: `review decide` against a missing
     session file must (a) succeed without crash, (b) actually persist the

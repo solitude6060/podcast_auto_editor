@@ -21,6 +21,7 @@ from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episo
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
+from .recipe import RecipeError, apply_recipe, export_recipe
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
 
@@ -151,6 +152,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_dry_run.add_argument("inputs", nargs="+")
     p_batch_dry_run.add_argument("--out", default="runs")
     p_batch_dry_run.add_argument("--fail-fast", action="store_true")
+
+    p_recipe = sub.add_parser("recipe", help="Export or apply a portable recipe.v1 of a run directory")
+    recipe_sub = p_recipe.add_subparsers(dest="recipe_command", required=True)
+    p_recipe_export = recipe_sub.add_parser("export", help="Bundle a run directory into recipe.v1.json")
+    p_recipe_export.add_argument("--run", required=True, help="Run directory produced by `run` or `dry-run`")
+    p_recipe_export.add_argument("--out", required=True, help="Output recipe path")
+    p_recipe_apply = recipe_sub.add_parser("apply", help="Replay a recipe against source media into a new run directory")
+    p_recipe_apply.add_argument("--recipe", required=True, help="Recipe JSON path")
+    p_recipe_apply.add_argument("--media", required=True, help="Source media path; must match recipe sha256 unless --allow-media-drift")
+    p_recipe_apply.add_argument("--out", required=True, help="Output run directory")
+    p_recipe_apply.add_argument("--allow-media-drift", action="store_true", help="Skip source media sha256 verification")
 
     p_transcribe = sub.add_parser("transcribe", help="Generate transcript JSON with a local provider")
     p_transcribe.add_argument("input")
@@ -770,6 +782,28 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(catalog, indent=2, ensure_ascii=False))
             else:
                 print(format_model_catalog_markdown(catalog), end="")
+            return 0
+    if args.command == "recipe":
+        if args.recipe_command == "export":
+            try:
+                path = export_recipe(args.run, args.out)
+            except RecipeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(path)
+            return 0
+        if args.recipe_command == "apply":
+            try:
+                out = apply_recipe(
+                    args.recipe,
+                    args.media,
+                    args.out,
+                    allow_media_drift=args.allow_media_drift,
+                )
+            except RecipeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(out)
             return 0
     if args.command == "transcribe":
         try:
