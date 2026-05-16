@@ -216,6 +216,64 @@ def test_dashboard_operation_endpoint_rejects_path_traversal(tmp_path):
         server.shutdown()
 
 
+def test_dashboard_operation_endpoint_rejects_bare_empty_path(tmp_path):
+    """Regression for PR-B triple review (MiniMax HIGH): the bare empty id
+    `/api/operation/` (trailing slash with nothing) must 404 explicitly."""
+    server, _root = _spawn_with_multi_op(tmp_path)
+    try:
+        response = _get(server.server_port, "/api/operation/")
+        assert response.status == 404, response.status
+    finally:
+        server.shutdown()
+
+
+def test_dashboard_operation_endpoint_rejects_encoded_traversal(tmp_path):
+    """Regression for PR-B triple review (Codex MEDIUM): the path guard must
+    reject percent-encoded traversal variants. Before the fix the guard ran
+    on the raw URL slice, so `%2e%2e`, `%2Fetc%2Fpasswd`, `%00` passed the
+    literal check and only 404'd because find_operation didn't recognise
+    those encoded ids — a hardening gap. Decoded forms (containing `/`,
+    `..`, or NUL) must be rejected explicitly."""
+    server, _root = _spawn_with_multi_op(tmp_path)
+    try:
+        port = server.server_port
+        for bad in (
+            "/api/operation/%2e%2e",  # decoded -> ..
+            "/api/operation/%2Fetc%2Fpasswd",  # decoded -> /etc/passwd
+            "/api/operation/speech1%00",  # NUL byte
+            "/api/operation/%2e",  # decoded -> .
+        ):
+            response = _get(port, bad)
+            assert response.status == 404, f"{bad} -> {response.status}"
+    finally:
+        server.shutdown()
+
+
+def test_dashboard_operation_endpoint_payload_matches_next_review_item_shape(tmp_path):
+    """Regression for PR-B triple review (Gemini HIGH + MiniMax CRITICAL):
+    /api/operation/<id> must return the canonical shape that the dashboard
+    detail pane needs — including decision_commands, source (not source_range),
+    detector, reason_code, evidence_text, required_review, removed_ref — so
+    consumers don't have to special-case two payload shapes."""
+    server, _root = _spawn_with_multi_op(tmp_path)
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        conn.request("GET", "/api/operation/speech1")
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode())
+        # Canonical fields (matching review_session.next_review_item)
+        assert payload["operation_id"] == "speech1"
+        assert payload["type"] == "speech_cut"
+        assert "source" in payload, "missing canonical `source` field"
+        assert payload["source"] == {"start": 0.5, "end": 0.75}
+        assert "decision_commands" in payload, "missing decision_commands"
+        assert payload["decision_commands"]["accept"].endswith("--decision accept --reviewer <name>")
+        assert "detector" in payload, "missing detector field from explain_operation"
+        assert "reason_code" in payload, "missing reason_code from explain_operation"
+    finally:
+        server.shutdown()
+
+
 def test_dashboard_status_filter_param_narrows_next(tmp_path):
     """PR-B: `GET /api/status?filter=silence_cut` should make `next` only
     consider silence_cut operations. The aggregate counts stay accurate."""
