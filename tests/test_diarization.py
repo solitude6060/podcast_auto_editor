@@ -64,6 +64,33 @@ def test_normalize_speaker_segments_validates_required_fields():
         normalize_speaker_segments([{"start": 1.0, "end": 0.5, "speaker_id": "spk0", "confidence": 0.8}])
 
 
+def test_normalize_speaker_segments_rejects_negative_start():
+    """Triple-review (Gemini LOW + MiniMax CRITICAL + Codex MEDIUM):
+    start < 0 must be rejected, mirroring transcript.py:59."""
+    with pytest.raises(DiarizationError, match="start"):
+        normalize_speaker_segments([{"start": -0.5, "end": 1.0, "speaker_id": "spk0"}])
+
+
+def test_normalize_speaker_segments_rejects_non_finite_timestamps():
+    """Triple-review (Codex MEDIUM): NaN / inf must not slip through `float(value)`."""
+    nan = float("nan")
+    inf = float("inf")
+    with pytest.raises(DiarizationError):
+        normalize_speaker_segments([{"start": nan, "end": 1.0, "speaker_id": "spk0"}])
+    with pytest.raises(DiarizationError):
+        normalize_speaker_segments([{"start": 0.0, "end": inf, "speaker_id": "spk0"}])
+
+
+def test_normalize_speaker_segments_rejects_boolean_timestamps():
+    """Triple-review (Codex MEDIUM): bool is a subtype of int; the validator
+    must reject it explicitly so `True` (=1.0) and `False` (=0.0) do not
+    silently map to seconds."""
+    with pytest.raises(DiarizationError):
+        normalize_speaker_segments([{"start": True, "end": 1.0, "speaker_id": "spk0"}])
+    with pytest.raises(DiarizationError):
+        normalize_speaker_segments([{"start": 0.0, "end": False, "speaker_id": "spk0"}])
+
+
 def test_normalize_speaker_segments_clamps_confidence():
     out = normalize_speaker_segments([
         {"start": 0.0, "end": 1.0, "speaker_id": "spk0", "confidence": 1.5},
@@ -84,6 +111,48 @@ def test_diarize_to_file_writes_canonical_schema(tmp_path):
     assert data["schema_version"] == SCHEMA_VERSION
     assert len(data["segments"]) == 2
     assert data["segments"][0]["speaker_id"] == "spk0"
+
+
+def test_diarize_to_file_writes_empty_segments_artefact(tmp_path):
+    """Triple-review (MiniMax MEDIUM): the empty-segments path through
+    `diarize_to_file` (no --config given) must produce a valid artefact
+    with `segments: []`, not an error or a missing file."""
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF\x24WAVEfmt")
+    out = tmp_path / "out.json"
+
+    result = diarize_to_file(audio, out, provider="mock")
+
+    assert result == out
+    data = json.loads(out.read_text())
+    assert data["schema_version"] == SCHEMA_VERSION
+    assert data["segments"] == []
+
+
+def test_mock_provider_wraps_invalid_json_as_diarization_error(tmp_path):
+    """Triple-review (Gemini MEDIUM): malformed mock config JSON must
+    surface as a clean DiarizationError so the CLI handler can convert
+    it to a non-zero exit, not bubble up as a JSONDecodeError traceback."""
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF\x24WAVEfmt")
+    config = tmp_path / "bad.json"
+    config.write_text("{not valid json")
+
+    provider = MockDiarizationProvider(config_path=config)
+    with pytest.raises(DiarizationError):
+        provider.diarize(audio)
+
+
+def test_mock_provider_wraps_missing_config_as_diarization_error(tmp_path):
+    """Triple-review (Gemini MEDIUM): a missing config file must surface as
+    a DiarizationError, not a raw FileNotFoundError."""
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF\x24WAVEfmt")
+    missing = tmp_path / "does-not-exist.json"
+
+    provider = MockDiarizationProvider(config_path=missing)
+    with pytest.raises(DiarizationError):
+        provider.diarize(audio)
 
 
 def test_diarize_to_file_rejects_unknown_provider(tmp_path):
