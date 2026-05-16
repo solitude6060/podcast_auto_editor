@@ -2,9 +2,43 @@
 
 繁體中文版本：[`README.zh-TW.md`](README.zh-TW.md)
 
-Local-first, CLI-first MVP for full-length podcast post-production.
+## Why this exists
 
-The project uses a canonical reversible `timeline.v1` before media mutation. It is audio-first (WAV/MP3/M4A), optionally supports MP4 sync/export, and keeps automated edits inspectable through preview, diff, and recovery artifacts.
+- **Runs entirely on your laptop.** No accounts, no sign-up, no upload. Your audio never leaves the disk.
+- **Free, no subscription, no metered credits.** Edit a 90-minute episode in March, take April off, edit twice in May. The cost is zero either way.
+- **Every edit is reviewable before it ships.** The pipeline produces a `timeline.v1` JSON of proposed cuts plus per-operation preview clips; you accept or reject each one in the dashboard. No AI "fix" lands silently.
+- **Reproducible edit recipes.** A run produces an artefact you can check into git and replay against the same source audio months later. No competing tool surveyed in `docs/research/2026-05-17-competitor-landscape.md` ships this.
+
+## How it compares
+
+| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
+|---|---|---|---|---|
+| Runs locally | no | no | no | **yes** |
+| Audio uploaded to vendor | yes | yes | yes | **no** |
+| Monthly subscription floor | $16–50 | $24–79 | $11–90 | **free** |
+| Metered AI credits | yes (per minute) | yes | yes (per hour) | **no** |
+| Per-edit accept/reject UI | partial | partial | report only | **yes** |
+| Git-checkable edit recipe | no | no | no | **yes** (planned, see roadmap) |
+
+Sourced from `docs/research/2026-05-17-competitor-landscape.md` (2025–2026 vendor pricing pages and Reddit / G2 complaints).
+
+## What this is
+
+A post-production pipeline for spoken-word podcasts that runs on your laptop. It uses a canonical reversible `timeline.v1` before media mutation, is audio-first (WAV / MP3 / M4A), optionally supports MP4 sync / export, and keeps automated edits inspectable through preview, diff, and recovery artifacts.
+
+The tool:
+- Detects silence and proposes timeline cuts (auto-accepted only for deterministic silence; speech-changing cuts always require review).
+- Generates transcripts, subtitles, and chapter markers.
+- Drafts AI chapter / summary / show notes (review-only; never auto-applied; works offline via `--dry-prompt`).
+- Renders publishable archive WAV plus podcast stereo / mono MP3 outputs with LUFS and true-peak gates.
+- Produces `timeline.v1` plus a recovery map so every accepted cut is reversible.
+
+## What this is not
+
+- **Not a DAW replacement.** Reaper / Hindenburg / Audacity are still the right tools for multi-track mixing, plug-in effects, and creative editing.
+- **Not a cloud recorder.** For remote multi-host recording, keep using Riverside / SquadCast / Zencastr and import the resulting files here.
+- **Not a voice cloner.** Synthetic voice generation is intentionally out of scope.
+- **Not a publishing pipeline.** RSS / Spotify / Apple uploads happen elsewhere.
 
 ## Quickstart
 
