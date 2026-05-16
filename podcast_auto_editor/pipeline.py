@@ -77,7 +77,7 @@ def accept_safe_defaults(timeline: dict[str, Any]) -> dict[str, Any]:
         if op.get("risk") == "deterministic" and op.get("type") == "silence_cut":
             op["state"] = "accepted"
             _attach_artifact_refs(op)
-        elif op.get("type") in {"retake_cut", "speech_cut"}:
+        elif op.get("type") in {"retake_cut", "speech_cut", "backchannel_cut"}:
             op["state"] = "proposed"
     accepted["recovery"] = build_recovery(accepted)
     return accepted
@@ -134,7 +134,7 @@ def review_accept_operations(
         if operation_id not in selected:
             continue
         seen.add(operation_id)
-        if op.get("type") not in {"retake_cut", "speech_cut"}:
+        if op.get("type") not in {"retake_cut", "speech_cut", "backchannel_cut"}:
             raise ValueError(f"operation {operation_id} is not a reviewable speech edit")
         op["state"] = "accepted"
         _attach_artifact_refs(op)
@@ -152,7 +152,7 @@ def review_accept_operations(
 
 
 def retake_operation_is_render_safe(operation: dict[str, Any]) -> bool:
-    if operation.get("type") not in {"retake_cut", "speech_cut"}:
+    if operation.get("type") not in {"retake_cut", "speech_cut", "backchannel_cut"}:
         return True
     provenance = operation.get("provenance", {})
     auto_policy = str(provenance.get("auto_accept_policy", ""))
