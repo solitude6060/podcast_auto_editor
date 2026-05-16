@@ -138,8 +138,13 @@ def apply_recipe(
         raise RecipeError(f"source media not found: {media}")
 
     expected_sha = recipe_data.get("source_media", {}).get("sha256")
+    if not expected_sha:
+        raise RecipeError(
+            "recipe is missing source_media.sha256; cannot verify media integrity. "
+            "Re-export the recipe from a complete run directory."
+        )
     actual_sha = sha256_file(media)
-    if expected_sha and expected_sha != actual_sha and not allow_media_drift:
+    if expected_sha != actual_sha and not allow_media_drift:
         raise RecipeError(
             f"source media sha256 mismatch (expected {expected_sha}, got {actual_sha}); "
             "pass --allow-media-drift to override"
@@ -161,7 +166,7 @@ def apply_recipe(
         "config": recipe_data.get("config", {}),
         "episode_id": out_root.name,
         "input": str(media),
-        "media_drift_allowed": bool(allow_media_drift and expected_sha and expected_sha != actual_sha),
+        "media_drift_allowed": bool(allow_media_drift and expected_sha != actual_sha),
     }
     _dump_json(out_root / "manifest.json", manifest_payload)
 
