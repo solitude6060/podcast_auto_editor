@@ -130,6 +130,39 @@ Speech cleanup heuristics can propose filler or false-start removals as `speech_
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
 
+## Diarization (optional)
+
+The tool can attach a `speaker_id` label to each transcript cue so AI chapter drafts, show-notes, and per-speaker filler detection can attribute speech correctly. The provider interface is pluggable:
+
+- **`mock`** (offline, ships in this repo) reads a JSON config of expected segments and returns them verbatim. Use this in CI and on dev machines without a HuggingFace token.
+- **`pyannote`** wraps the `pyannote-audio` 3.x community pipeline via a lazy import. Real model integration is being added in a follow-up PR; running it today raises a clear `DiarizationProviderError` telling you whether to install the dep or wait for the integration.
+
+```bash
+# Mock provider — reads segments from a JSON config (offline)
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider mock \
+  --config diarization-config.json \
+  --out runs/episode/speaker_segments.v1.json
+
+# Pyannote provider — requires `uv add pyannote-audio` and HF_TOKEN
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider pyannote \
+  --out runs/episode/speaker_segments.v1.json
+```
+
+Mock config shape (`diarization-config.json`):
+
+```json
+{
+  "segments": [
+    {"start": 0.0,  "end": 12.5, "speaker_id": "spk0", "confidence": 0.95},
+    {"start": 12.5, "end": 30.0, "speaker_id": "spk1", "confidence": 0.92}
+  ]
+}
+```
+
+Output (`speaker_segments.v1.json`): `{schema_version, audio_path, segments: [{start, end, speaker_id, confidence}, ...]}`. JSON is sorted-keys + indent=2 so the artefact is git-diff-friendly. `transcript.v1` cues may optionally carry a `speaker_id` field — existing transcripts without it continue to validate.
+
 ## Reproducible edits with `recipe export` / `recipe apply`
 
 A run directory can be bundled into a portable `recipe.v1.json` artefact that captures the source media sha256, the accepted timeline, the config snapshot, and the optional AI draft. Commit the recipe to git; later, replay it against the same source audio to reproduce the same edits deterministically.

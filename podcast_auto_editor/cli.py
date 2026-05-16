@@ -21,6 +21,7 @@ from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episo
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
+from .diarization import DiarizationError, diarize_to_file
 from .recipe import RecipeError, apply_recipe, export_recipe
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
@@ -152,6 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_dry_run.add_argument("inputs", nargs="+")
     p_batch_dry_run.add_argument("--out", default="runs")
     p_batch_dry_run.add_argument("--fail-fast", action="store_true")
+
+    p_diarize = sub.add_parser("diarize", help="Generate speaker_segments.v1 from audio via a diarization provider")
+    p_diarize.add_argument("input", help="Source audio path")
+    p_diarize.add_argument("--provider", default="mock", choices=("mock", "pyannote"), help="Diarization provider (mock ships offline; pyannote requires HF_TOKEN and is deferred to PR-C2)")
+    p_diarize.add_argument("--out", required=True, help="Output path for speaker_segments.v1.json")
+    p_diarize.add_argument("--config", help="Path to provider config JSON (mock provider: list of segments to return)")
 
     p_recipe = sub.add_parser("recipe", help="Export or apply a portable recipe.v1 of a run directory")
     recipe_sub = p_recipe.add_subparsers(dest="recipe_command", required=True)
@@ -783,6 +790,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_model_catalog_markdown(catalog), end="")
             return 0
+    if args.command == "diarize":
+        try:
+            out = diarize_to_file(args.input, args.out, provider=args.provider, config_path=args.config)
+        except DiarizationError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(out)
+        return 0
     if args.command == "recipe":
         if args.recipe_command == "export":
             try:
