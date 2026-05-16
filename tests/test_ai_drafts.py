@@ -133,7 +133,9 @@ def test_generate_ai_draft_normalizes_live_response(monkeypatch):
 
 def test_ai_draft_prompt_omits_speakers_when_segments_absent(monkeypatch):
     """Backward compatibility: existing transcripts without speaker_segments
-    must produce the same prompt shape as before PR-D (no Speakers line)."""
+    must produce the same prompt + output shape as before PR-D — no
+    `Speakers:` line in the prompt, no `speaker_*` keys in the metadata,
+    and no `speaker_id` key on normalized chapters."""
     timeline = _timeline_with_operations()
     transcript_segments = [{"start": 0.0, "end": 0.4, "text": "hi there"}]
 
@@ -149,6 +151,36 @@ def test_ai_draft_prompt_omits_speakers_when_segments_absent(monkeypatch):
     )
     user_content = payload["request"]["messages"][1]["content"]
     assert "Speakers:" not in user_content
+    # Output-shape regression guards (Codex review on PR-D):
+    metadata = payload["metadata"]
+    assert "speaker_count" not in metadata, "speaker_count must be absent on no-speaker runs"
+    assert "speaker_labels" not in metadata, "speaker_labels must be absent on no-speaker runs"
+
+
+def test_ai_draft_chapters_omit_speaker_id_when_no_segments(monkeypatch):
+    """Backward compatibility regression guard (Codex review on PR-D):
+    normalized chapters returned from a live LLM response must NOT carry
+    a `speaker_id` key when the caller did not enable speaker attribution.
+    Old downstream consumers don't know about the field."""
+    timeline = _timeline_with_operations()
+    transcript_segments = [{"start": 0.0, "end": 0.4, "text": "hi"}]
+
+    def fake_chat(**_k):
+        return json.dumps({
+            "chapters": [{"title": "Intro", "start": 0.0, "end": 2.0, "why_merged": "x"}],
+            "summary": {"title": "ep", "one_paragraph": "x", "key_points": []},
+            "show_notes": [],
+            "retake_decisions": [],
+            "operation_explanations": [],
+        })
+
+    monkeypatch.setattr("podcast_auto_editor.ai_drafts.chat_with_local_ai", fake_chat)
+
+    payload = generate_ai_draft(
+        timeline=timeline,
+        transcript_segments=transcript_segments,
+    )
+    assert "speaker_id" not in payload["chapters"][0], "no speaker_id key on no-speaker runs"
 
 
 def test_ai_draft_prompt_includes_speaker_segments_when_present(monkeypatch):
@@ -209,11 +241,16 @@ def test_ai_draft_prompt_honors_speaker_labels_override(monkeypatch):
 
 
 def test_ai_draft_normalized_chapters_preserve_speaker_id(monkeypatch):
-    """When the LLM returns chapter objects with speaker_id, the
-    normalized payload retains the field (None if the LLM omits it).
-    Backward compat: chapters without speaker_id stay parseable."""
+    """When attribution is enabled (speaker_segments supplied) AND the LLM
+    returns chapter objects with speaker_id, the normalized payload retains
+    the field. Chapters where the LLM omitted speaker_id get speaker_id=None
+    so the output shape is consistent within an attribution-enabled run."""
     timeline = _timeline_with_operations()
     transcript_segments = [{"start": 0.0, "end": 0.4, "text": "hi"}]
+    speaker_segments = [
+        {"start": 0.0, "end": 2.0, "speaker_id": "spk0", "confidence": 0.9},
+        {"start": 2.0, "end": 5.0, "speaker_id": "spk1", "confidence": 0.9},
+    ]
 
     def fake_chat(**_k):
         return json.dumps({
@@ -232,11 +269,12 @@ def test_ai_draft_normalized_chapters_preserve_speaker_id(monkeypatch):
     payload = generate_ai_draft(
         timeline=timeline,
         transcript_segments=transcript_segments,
+        speaker_segments=speaker_segments,
         no_net=False,
         dry_prompt=False,
     )
     assert payload["chapters"][0]["speaker_id"] == "spk0"
-    assert payload["chapters"][1].get("speaker_id") is None
+    assert payload["chapters"][1]["speaker_id"] is None
 
 
 def test_build_ai_explanation_dry_prompt_includes_payload():

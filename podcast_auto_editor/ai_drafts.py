@@ -237,7 +237,7 @@ def _normalize_explanation(item: dict[str, Any], operation_ids: set[str]) -> dic
     }
 
 
-def _normalize_chapter(idx: int, chapter: dict[str, Any]) -> dict[str, Any]:
+def _normalize_chapter(idx: int, chapter: dict[str, Any], *, attribution_enabled: bool = False) -> dict[str, Any]:
     start = chapter.get("start")
     end = chapter.get("end")
     try:
@@ -248,20 +248,22 @@ def _normalize_chapter(idx: int, chapter: dict[str, Any]) -> dict[str, Any]:
         end_value = float(end)
     except (TypeError, ValueError):
         end_value = 0.0
-    raw_speaker = chapter.get("speaker_id")
-    if raw_speaker is None:
-        speaker_id: str | None = None
-    else:
-        speaker_text = str(raw_speaker).strip()
-        speaker_id = speaker_text or None
-    return {
+    out: dict[str, Any] = {
         "index": idx + 1,
         "title": str(chapter.get("title") or f"Chapter {idx + 1}").strip()[:180],
         "start": start_value,
         "end": end_value,
         "why_merged": str(chapter.get("why_merged") or chapter.get("reason") or "AI draft"),
-        "speaker_id": speaker_id,
     }
+    if attribution_enabled:
+        raw_speaker = chapter.get("speaker_id")
+        if raw_speaker is None:
+            speaker_id: str | None = None
+        else:
+            speaker_text = str(raw_speaker).strip()
+            speaker_id = speaker_text or None
+        out["speaker_id"] = speaker_id
+    return out
 
 
 def _normalize_summary(raw_summary: dict[str, Any] | None) -> dict[str, Any]:
@@ -280,9 +282,11 @@ def _normalize_ai_draft_payload(
     raw: dict[str, Any],
     operation_ids: set[str],
     timeline_path: Path | None = None,
+    *,
+    attribution_enabled: bool = False,
 ) -> dict[str, Any]:
     chapters = [
-        _normalize_chapter(idx, chapter)
+        _normalize_chapter(idx, chapter, attribution_enabled=attribution_enabled)
         for idx, chapter in enumerate(raw.get("chapters") if isinstance(raw.get("chapters"), list) else [])
         if isinstance(chapter, dict)
     ]
@@ -347,8 +351,15 @@ def generate_ai_draft(
         for seg in (speaker_segments or [])
         if seg.get("speaker_id")
     }
+    attribution_enabled = bool(distinct_speakers)
 
     if dry_prompt or no_net:
+        metadata: dict[str, Any] = {
+            "source_timeline": str(timeline_path) if timeline_path else None,
+        }
+        if attribution_enabled:
+            metadata["speaker_count"] = len(distinct_speakers)
+            metadata["speaker_labels"] = dict(speaker_labels) if speaker_labels else None
         return {
             "schema_version": SCHEMA_VERSION,
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -364,9 +375,7 @@ def generate_ai_draft(
             "retake_decisions": [],
             "operation_explanations": [],
             "metadata": {
-                "speaker_count": len(distinct_speakers),
-                "speaker_labels": dict(speaker_labels) if speaker_labels else None,
-                "source_timeline": str(timeline_path) if timeline_path else None,
+                **metadata,
                 "source_segment_count": len(transcript_segments),
                 "candidate_operation_count": len(candidates),
             },
@@ -380,7 +389,7 @@ def generate_ai_draft(
         api_key=api_key,
     )
     parsed = _extract_json(content)
-    return _normalize_ai_draft_payload(parsed, operation_ids, Path(timeline_path) if timeline_path else None)
+    return _normalize_ai_draft_payload(parsed, operation_ids, Path(timeline_path) if timeline_path else None, attribution_enabled=attribution_enabled)
 
 
 def build_ai_explanation(
