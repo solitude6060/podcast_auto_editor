@@ -44,6 +44,12 @@ def _make_spiky_wav(path: Path) -> Path:
     return path
 
 
+def _write_placeholder_wav(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt placeholder-audio")
+    return path
+
+
 def _assert_walkthrough_artifacts(run_dir: Path) -> None:
     review_session = run_dir / "review-session.json"
     recipe = run_dir / "recipe.v1.json"
@@ -139,7 +145,7 @@ def test_quickstart_real_audio_rejects_non_wav_file(tmp_path, capsys):
 
 @pytest.mark.parametrize("episode_id", ["../escape", "with/slash", ""])
 def test_quickstart_real_audio_rejects_invalid_episode_id_before_copy(tmp_path, capsys, episode_id):
-    audio = make_silence_fixture(tmp_path / "input.wav")
+    audio = _write_placeholder_wav(tmp_path / "input.wav")
     out = tmp_path / "walkthrough"
     sentinel = out / "escape.wav"
     sentinel.parent.mkdir(parents=True)
@@ -165,7 +171,7 @@ def test_quickstart_real_audio_rejects_invalid_episode_id_before_copy(tmp_path, 
 
 
 def test_validate_real_audio_path_returns_resolved_absolute_path(tmp_path):
-    audio = make_silence_fixture(tmp_path / "input.wav")
+    audio = _write_placeholder_wav(tmp_path / "input.wav")
     link = tmp_path / "linked.wav"
     link.symlink_to(audio)
 
