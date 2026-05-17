@@ -520,6 +520,53 @@ def test_pyannote_provider_does_not_leak_hf_token_to_error_or_artifact(tmp_path,
     )
 
 
+def test_pyannote_provider_does_not_leak_hf_token_via_chained_traceback(tmp_path, monkeypatch):
+    """Fake pyannote raises an exception whose message contains the token sentinel.
+    Verify the sentinel does not appear in str(exc), str(exc.__cause__) (must be
+    None after fix), or the formatted traceback string.
+
+    RED: this test fails before the `from None` fix because __cause__ is not None
+    and formatted traceback includes the original exception text.
+    """
+    import sys
+    import traceback
+    import types
+
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF\x24WAVEfmt")
+    SENTINEL = "pae_test_sentinel_xyz"
+    monkeypatch.setenv("HF_TOKEN", SENTINEL)
+
+    class _TokenLeakPipeline:
+        @staticmethod
+        def from_pretrained(model_id, use_auth_token=None):
+            raise OSError(f"401 Unauthorized: token={SENTINEL}")
+
+    fake_mod = types.ModuleType("pyannote.audio")
+    fake_mod.Pipeline = _TokenLeakPipeline
+    parent = types.ModuleType("pyannote")
+    parent.audio = fake_mod
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_mod)
+    monkeypatch.setitem(sys.modules, "pyannote", parent)
+
+    provider = PyannoteDiarizationProvider()
+    with pytest.raises(DiarizationProviderError) as exc_info:
+        provider.diarize(audio)
+
+    assert SENTINEL not in str(exc_info.value), (
+        f"Token sentinel leaked into exception message: {exc_info.value!r}"
+    )
+    assert exc_info.value.__cause__ is None, (
+        f"__cause__ must be None (from None) to prevent traceback chaining; got: {exc_info.value.__cause__!r}"
+    )
+    tb_text = "".join(
+        traceback.format_exception(type(exc_info.value), exc_info.value, exc_info.value.__traceback__)
+    )
+    assert SENTINEL not in tb_text, (
+        f"Token sentinel leaked into formatted traceback:\n{tb_text}"
+    )
+
+
 def test_pyannote_pipeline_is_constructed_once_per_provider_instance(tmp_path, monkeypatch):
     """Pipeline.from_pretrained must be called exactly once even when
     diarize() is called multiple times on the same provider instance."""
