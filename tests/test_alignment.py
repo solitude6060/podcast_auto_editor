@@ -7,6 +7,7 @@ from podcast_auto_editor.alignment import (
     SCHEMA_VERSION,
     AlignmentError,
     AlignmentProviderError,
+    LattifaiAlignmentProvider,
     MockAlignmentProvider,
     WhisperXAlignmentProvider,
     align_to_file,
@@ -112,3 +113,36 @@ def test_whisperx_via_align_to_file_surfaces_error_without_writing(tmp_path):
     with pytest.raises(AlignmentProviderError):
         align_to_file("audio.wav", [], out, provider="whisperx")
     assert not out.exists()
+
+
+def test_lattifai_provider_raises_clear_error_when_called(tmp_path):
+    """PR-X4: Lattifai adapter raises a clear AlignmentProviderError until
+    PR-X4.1 wires real integration. Two distinct paths:
+    - `lattifai` not installed → install hint + air-gap caveat
+    - installed → "deferred to PR-X4.1" message
+    Either way the message mentions lattifai or deferred."""
+    provider = LattifaiAlignmentProvider()
+    with pytest.raises(AlignmentProviderError) as exc_info:
+        provider.align("audio.wav", [{"start": 0.0, "end": 1.0, "text": "x"}])
+    msg = str(exc_info.value).lower()
+    assert "lattifai" in msg or "deferred" in msg
+
+
+def test_lattifai_via_align_to_file_surfaces_error_without_writing(tmp_path):
+    out = tmp_path / "out.json"
+    with pytest.raises(AlignmentProviderError):
+        align_to_file("audio.wav", [], out, provider="lattifai")
+    assert not out.exists()
+
+
+def test_align_to_file_rejects_unknown_provider_after_lattifai_added(tmp_path):
+    """Regression guard for PR-X4: the error message lists all three known
+    providers after lattifai is registered."""
+    try:
+        align_to_file("audio.wav", [], tmp_path / "out.json", provider="not-a-provider")
+    except AlignmentError as exc:
+        assert "mock" in str(exc)
+        assert "whisperx" in str(exc)
+        assert "lattifai" in str(exc)
+    else:
+        raise AssertionError("expected AlignmentError for unknown provider")
