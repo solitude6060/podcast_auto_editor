@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -194,8 +195,6 @@ class LattifaiAlignmentProvider(AlignmentProvider):
         # ------------------------------------------------------------------
         # 1. Resolve model directory: explicit kwarg > env var
         # ------------------------------------------------------------------
-        import os
-
         model_path: str | None = options.get("model_path") or os.environ.get(
             "PAE_LATTIFAI_ONNX_PATH"
         )
@@ -209,38 +208,45 @@ class LattifaiAlignmentProvider(AlignmentProvider):
             )
 
         # ------------------------------------------------------------------
-        # 2. Validate required ONNX file exists
+        # 2. Validate model directory and required ONNX file exist
         # ------------------------------------------------------------------
         model_dir = Path(model_path)
-        acoustic_onnx = model_dir / "acoustic_opt.onnx"
-        if not acoustic_onnx.exists():
+        if not model_dir.exists():
             raise AlignmentProviderError(
-                f"Lattice-1 model file not found: {acoustic_onnx}. "
-                "Download the model with: "
-                "huggingface-cli download LattifAI/Lattice-1 "
-                f"--local-dir {model_dir} "
-                "and verify acoustic_opt.onnx is present. "
-                "See docs/runbooks/lattifai-onnx-setup.md for full setup steps."
+                f"LattifaiAlignmentProvider: model directory does not exist: {model_dir}. "
+                f"Set model_path= or PAE_LATTIFAI_ONNX_PATH to point at the directory "
+                f"containing acoustic_opt.onnx. "
+                f"See docs/runbooks/lattifai-onnx-setup.md."
+            )
+        if not model_dir.is_dir():
+            raise AlignmentProviderError(
+                f"LattifaiAlignmentProvider: model_path must be a directory, not a file: {model_dir}."
+            )
+        acoustic_file = model_dir / "acoustic_opt.onnx"
+        if not acoustic_file.is_file():
+            raise AlignmentProviderError(
+                f"LattifaiAlignmentProvider: expected file acoustic_opt.onnx not found under "
+                f"{model_dir}. Run the manual download per docs/runbooks/lattifai-onnx-setup.md."
             )
 
         # ------------------------------------------------------------------
-        # 3. Lazy-import onnxruntime (optional dep group: align-lattifai)
+        # 3. Early-return for empty transcript (no ONNX or decode work needed)
+        # ------------------------------------------------------------------
+        if not transcript_segments:
+            return []
+
+        # ------------------------------------------------------------------
+        # 4. Lazy-import onnxruntime (optional dep group: align-lattifai)
         # ------------------------------------------------------------------
         try:
             import onnxruntime as ort  # noqa: F401
         except (ImportError, TypeError) as exc:
             raise AlignmentProviderError(
                 "onnxruntime is not installed. Install the align-lattifai optional "
-                "dependency group: uv sync --group align-lattifai  "
-                "(or: pip install onnxruntime>=1.18). "
+                "dependency group: uv sync --extra align-lattifai  "
+                "(or: pip install .[align-lattifai]). "
                 "For GPU inference install onnxruntime-gpu instead."
             ) from exc
-
-        # ------------------------------------------------------------------
-        # 4. Early-return for empty transcript (no decode work needed)
-        # ------------------------------------------------------------------
-        if not transcript_segments:
-            return []
 
         # ------------------------------------------------------------------
         # 5. ONNX inference + decode — BLOCKED pending local decode path
@@ -265,13 +271,17 @@ class LattifaiAlignmentProvider(AlignmentProvider):
         #       subprocess for the k2 decode step.
         # ------------------------------------------------------------------
         raise AlignmentProviderError(
-            "LattifaiAlignmentProvider: ONNX model loaded successfully but the "
-            "forced-alignment decode step is blocked. The upstream decoder (k2 "
-            "lattice library) has no Python 3.11 PyPI wheel, and the SDK tokenizer "
-            "makes backend network calls incompatible with air-gap operation. "
-            "See the 'Decode blocker' note in alignment.py LattifaiAlignmentProvider "
-            "and docs/plans/2026-05-18-pr-x4-1-lattifai-onnx-air-gap.md §2 follow-up "
-            "for the required next steps before this provider can produce real output."
+            "LattifaiAlignmentProvider: model file verified and onnxruntime "
+            "available, but the forced-alignment decode step is blocked.\n\n"
+            "Cause: Lattifai's decoder requires k2 (FST library) which has no "
+            "Python 3.11 wheel on PyPI, and the SDK's tokenizer POSTs to a "
+            "Lattifai backend (incompatible with the air-gap goal).\n\n"
+            "Alternatives (see docs/plans/2026-05-18-pr-x4-1-lattifai-onnx-air-gap.md §9.5):\n"
+            "  - Use --provider whisperx for the supported air-gap path "
+            "(PR-X3.1: WhisperX + Chinese wav2vec2 phoneme model)\n"
+            "  - Use --provider mock for offline placeholder alignments\n"
+            "  - Track PR-X4.2 for the decode body (from-scratch viterbi over ONNX emissions)\n\n"
+            "See docs/runbooks/lattifai-onnx-setup.md for current setup status."
         )
 
 
@@ -315,6 +325,7 @@ def align_to_file(
     *,
     provider: str = "mock",
     config_path: str | Path | None = None,
+    **provider_options: Any,
 ) -> Path:
     """Drive an alignment provider and write the canonical artefact."""
     if provider == "mock":
@@ -325,7 +336,7 @@ def align_to_file(
         prov = LattifaiAlignmentProvider()
     else:
         raise AlignmentError(f"unknown provider: {provider!r} (expected one of: mock, whisperx, lattifai)")
-    words = prov.align(audio_path, transcript_segments)
+    words = prov.align(audio_path, transcript_segments, **provider_options)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "audio_path": str(audio_path),

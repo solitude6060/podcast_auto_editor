@@ -19,10 +19,15 @@
 ## Step 1 — Install the optional dependency group
 
 ```bash
-uv sync --group align-lattifai
+uv sync --extra align-lattifai
 ```
 
-This installs `onnxruntime>=1.18` (CPU provider).
+This installs `onnxruntime>=1.0` (CPU provider).
+
+`align-lattifai` is a PEP 621 optional-dependency extra defined under
+`[project.optional-dependencies]` in `pyproject.toml`. Use `--extra` (not
+`--group`) with `uv sync`, or `pip install .[align-lattifai]` for standard
+pip installs.
 
 **GPU users (CUDA):** install the GPU variant instead and skip the CPU package:
 

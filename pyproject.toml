@@ -12,18 +12,22 @@ dependencies = []
 [project.scripts]
 podcast-auto-editor = "podcast_auto_editor.cli:main"
 
+# CPU-only ONNX Runtime for Lattifai Lattice-1 air-gapped alignment (PEP 621 extra).
+# Install with: pip install .[align-lattifai]  or  uv sync --extra align-lattifai
+# CUDA users: also install onnxruntime-gpu (uninstall onnxruntime first).
+# CoreML users (Apple Silicon): also install onnxruntime-silicon.
+# These hardware-specific variants are NOT listed here because they are
+# platform-gated and conflict with the CPU package on some platforms.
+# Bound: >=1.0 — no specific 1.x feature is required; relaxed from >=1.18
+# (no concrete minimum verified against Lattice-1 ONNX opset requirements).
+[project.optional-dependencies]
+align-lattifai = [
+    "onnxruntime>=1.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 
 [dependency-groups]
 dev = ["pytest>=6.2"]
-
-# CPU-only ONNX Runtime for Lattifai Lattice-1 air-gapped alignment.
-# CUDA users: also install onnxruntime-gpu (uninstall onnxruntime first).
-# CoreML users (Apple Silicon): also install onnxruntime-silicon.
-# These hardware-specific variants are NOT listed here because they are
-# platform-gated and conflict with the CPU package on some platforms.
-align-lattifai = [
-    "onnxruntime>=1.18",
-]
