@@ -18,3 +18,12 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = ["pytest>=6.2"]
+
+# CPU-only ONNX Runtime for Lattifai Lattice-1 air-gapped alignment.
+# CUDA users: also install onnxruntime-gpu (uninstall onnxruntime first).
+# CoreML users (Apple Silicon): also install onnxruntime-silicon.
+# These hardware-specific variants are NOT listed here because they are
+# platform-gated and conflict with the CPU package on some platforms.
+align-lattifai = [
+    "onnxruntime>=1.18",
+]
