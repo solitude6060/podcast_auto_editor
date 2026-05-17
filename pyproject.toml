@@ -16,5 +16,18 @@ podcast-auto-editor = "podcast_auto_editor.cli:main"
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[project.optional-dependencies]
+# Install with: uv sync --extra diarize-pyannote
+# or: pip install 'podcast-auto-editor[diarize-pyannote]'
+# Requires an HF_TOKEN with accepted license at:
+#   https://huggingface.co/pyannote/speaker-diarization-3.1
+# CPU wheels are used by default; the pipeline auto-moves to CUDA when
+# torch.cuda.is_available() is true at runtime. To use CUDA wheels,
+# install torch separately per https://pytorch.org/get-started/locally/
+diarize-pyannote = [
+    "pyannote.audio>=3.1,<4",
+    "torch>=2.0",
+]
+
 [dependency-groups]
 dev = ["pytest>=6.2"]
