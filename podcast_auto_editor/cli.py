@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -10,16 +11,17 @@ from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
 from .ai_models import build_model_catalog, build_model_readiness_report, build_pull_plan, format_model_catalog_markdown, format_model_readiness_markdown, format_pull_plan_script
 from .ai_drafts import AI_DRAFT_REL_PATH, AIServiceError, build_ai_explanation, generate_ai_draft
 from .asr import ASRProviderError, provider_names, transcribe_to_file
-from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
+from .artifacts import ensure_run_dirs, run_paths, validate_episode_id, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .html_report import build_html_report, write_html_report
 from .local_review_server import serve_review_app, validate_review_host, write_review_launcher
+from .media import MediaToolError
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
-from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
+from .review_session import apply_decision, create_review_session, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
 from .alignment import AlignmentError, align_to_file
 from .diarization import DiarizationError, diarize_to_file
@@ -250,6 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_quickstart = sub.add_parser("quickstart", help="Run an end-to-end demo: fixtures + pipeline + next-step hints")
     p_quickstart.add_argument("--out", default="quickstart", help="Output root for demo fixtures and run artefacts")
     p_quickstart.add_argument("--episode-id", default="demo", help="Episode id under <out>/runs/<episode-id>")
+    p_quickstart.add_argument("--real-audio", help="Use an existing WAV file instead of generating demo media")
     return parser
 
 
@@ -285,6 +288,58 @@ def _resolve_ai_output_path(timeline_path: str | Path, out: str | None) -> Path:
     if candidate.suffix.lower() == ".json":
         return candidate
     return candidate / AI_DRAFT_REL_PATH
+
+
+def _validate_real_audio_path(path: str | Path) -> Path:
+    audio_path = Path(path)
+    if not audio_path.exists():
+        raise ValueError(f"audio file does not exist: {audio_path}")
+    if not audio_path.is_file():
+        raise ValueError(f"audio path must be a regular file: {audio_path}")
+    if audio_path.suffix.lower() != ".wav":
+        raise ValueError(f"audio file must be a .wav file: {audio_path}")
+    return audio_path.resolve(strict=True)
+
+
+def _copy_real_audio_for_quickstart(source: Path, out_root: Path, episode_id: str) -> Path:
+    raw_dir = out_root / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    target = raw_dir / f"{episode_id}.wav"
+    if target.exists() or target.is_symlink():
+        target.unlink()
+    try:
+        target.hardlink_to(source)
+    except OSError:
+        shutil.copy2(source, target)
+    return target
+
+
+def _write_quickstart_walkthrough_artifacts(run_root: Path, audio_path: Path) -> dict[str, Path]:
+    proposed_timeline = run_root / "timeline.proposed.v1.json"
+    accepted_timeline = run_root / "timeline.accepted.v1.json"
+    transcript_path = run_root / "exports" / "transcript.json"
+    ai_draft_path = run_root / AI_DRAFT_REL_PATH
+    recipe_path = run_root / "recipe.v1.json"
+    review_session_path = run_root / "review-session.json"
+
+    write_review_session(review_session_path, create_review_session(proposed_timeline))
+    transcribe_to_file(audio_path, transcript_path, provider_name="stub")
+    transcript_segments = load_transcript_segments(transcript_path)
+    accepted = read_json(accepted_timeline)
+    ai_draft = generate_ai_draft(
+        timeline=accepted,
+        transcript_segments=transcript_segments,
+        dry_prompt=True,
+        no_net=True,
+        timeline_path=accepted_timeline,
+    )
+    write_json(ai_draft_path, ai_draft)
+    export_recipe(run_root, recipe_path)
+    return {
+        "review_session": review_session_path,
+        "recipe": recipe_path,
+        "ai_draft": ai_draft_path,
+    }
 
 
 def _execute_dry_run(input_path: str | Path, out_dir: str | Path, config, episode_id: str | None = None, transcript_segments: list[dict] | None = None):
@@ -965,18 +1020,44 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "quickstart":
         out_root = Path(args.out)
-        out_root.mkdir(parents=True, exist_ok=True)
         media_dir = out_root / "media"
         runs_dir = out_root / "runs"
+        if args.real_audio:
+            try:
+                validate_episode_id(args.episode_id)
+                audio_path = _copy_real_audio_for_quickstart(
+                    _validate_real_audio_path(args.real_audio),
+                    out_root,
+                    args.episode_id,
+                )
+            except ValueError as exc:
+                print(f"quickstart real audio error: {exc}", file=sys.stderr)
+                return 1
+        else:
+            out_root.mkdir(parents=True, exist_ok=True)
+            try:
+                paths = make_demo_fixtures(str(media_dir))
+            except FileNotFoundError as exc:
+                print(f"quickstart needs ffmpeg/ffprobe on PATH to generate demo media: {exc}", file=sys.stderr)
+                return 1
+            audio_path = Path(paths.get("audio", media_dir / "demo-silence.wav"))
+        config = load_config()
         try:
-            paths = make_demo_fixtures(str(media_dir))
-        except FileNotFoundError as exc:
-            print(f"quickstart needs ffmpeg/ffprobe on PATH to generate demo media: {exc}", file=sys.stderr)
-            return 1
-        audio_path = Path(paths.get("audio", media_dir / "demo-silence.wav"))
-        run_paths_obj = run_pipeline(audio_path, runs_dir, load_config(), episode_id=args.episode_id)
-        print(f"demo media: {audio_path}")
+            run_paths_obj = run_pipeline(audio_path, runs_dir, config, episode_id=args.episode_id)
+        except MediaToolError as exc:
+            if not args.real_audio or "quality gate failed" not in str(exc):
+                raise
+            print(
+                f"quickstart real audio warning: {exc}; writing inspection artifacts without publish exports",
+                file=sys.stderr,
+            )
+            run_paths_obj = _execute_dry_run(audio_path, runs_dir, config, episode_id=args.episode_id)
+        walkthrough_artifacts = _write_quickstart_walkthrough_artifacts(run_paths_obj.root, audio_path)
+        print(f"audio:      {audio_path}")
         print(f"run dir:    {run_paths_obj.root}")
+        print(f"review:     {walkthrough_artifacts['review_session']}")
+        print(f"recipe:     {walkthrough_artifacts['recipe']}")
+        print(f"ai draft:   {walkthrough_artifacts['ai_draft']}")
         print()
         print("Next:")
         print(f"  uv run python -m podcast_auto_editor report {run_paths_obj.root} --format markdown")
