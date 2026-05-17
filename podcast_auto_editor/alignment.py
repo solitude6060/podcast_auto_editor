@@ -140,6 +140,50 @@ class MockAlignmentProvider(AlignmentProvider):
         return normalize_word_alignments(words)
 
 
+class LattifaiAlignmentProvider(AlignmentProvider):
+    """Lazy-import adapter for Lattifai Lattice-1 forced alignment.
+
+    Per `docs/research/2026-05-17-chinese-asr-models.md`:
+    - Lattice-1 model itself is Apache-2.0, ONNX, runs entirely on the
+      local machine (onnxruntime + CUDA/MPS/CoreML providers).
+    - Audio never leaves the box during alignment.
+    - **But** the official `lattifai-python` SDK by default constructs a
+      `SyncAPIClient` that phones home for quota / usage tracking even
+      though the model is local. For strict "nothing leaves my box"
+      operation, callers must either accept the telemetry caveat
+      (auth via `lai auth trial` for free 120-min credit) or bypass the
+      SDK and load https://huggingface.co/LattifAI/Lattice-1 directly
+      via onnxruntime (unofficial; tokenizer/decoder hookup is the
+      caller's responsibility — out of scope for PR-X4).
+
+    Real model integration is deferred to PR-X4.1.
+    """
+
+    def align(
+        self,
+        audio_path: str | Path,  # noqa: ARG002
+        transcript_segments: list[dict[str, Any]],  # noqa: ARG002
+        **options: Any,  # noqa: ARG002
+    ) -> list[dict[str, Any]]:
+        try:
+            import lattifai  # noqa: F401
+        except ImportError as exc:
+            raise AlignmentProviderError(
+                "lattifai is not installed; run `uv add lattifai` to enable Lattifai "
+                "Lattice-1 alignment. Note: the SDK constructs a SyncAPIClient that "
+                "phones home for quota tracking even though the ONNX model is local. "
+                "Use `--provider whisperx` for a fully air-gapped path, or bypass the "
+                "SDK by loading LattifAI/Lattice-1 ONNX directly via onnxruntime. See "
+                "docs/research/2026-05-17-chinese-asr-models.md §2.2 for details."
+            ) from exc
+        raise AlignmentProviderError(
+            "lattifai real-model integration is deferred to follow-up PR-X4.1; "
+            "use `--provider mock` or `--provider whisperx` for now. PR-X4.1 will "
+            "wire the LattifaiClient + auth handling once the air-gap-vs-telemetry "
+            "trade-off has been explicitly decided."
+        )
+
+
 class WhisperXAlignmentProvider(AlignmentProvider):
     """Lazy-import adapter for WhisperX forced alignment.
 
@@ -186,8 +230,10 @@ def align_to_file(
         prov: AlignmentProvider = MockAlignmentProvider(config_path=config_path)
     elif provider == "whisperx":
         prov = WhisperXAlignmentProvider()
+    elif provider == "lattifai":
+        prov = LattifaiAlignmentProvider()
     else:
-        raise AlignmentError(f"unknown provider: {provider!r} (expected one of: mock, whisperx)")
+        raise AlignmentError(f"unknown provider: {provider!r} (expected one of: mock, whisperx, lattifai)")
     words = prov.align(audio_path, transcript_segments)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
