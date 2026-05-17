@@ -164,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_diarize = sub.add_parser("diarize", help="Generate speaker_segments.v1 from audio via a diarization provider")
     p_diarize.add_argument("input", help="Source audio path")
-    p_diarize.add_argument("--provider", default="mock", choices=("mock", "pyannote"), help="Diarization provider (mock ships offline; pyannote requires HF_TOKEN and is deferred to PR-C2)")
+    p_diarize.add_argument("--provider", default="mock", choices=("mock", "pyannote"), help="Diarization provider (mock ships offline; pyannote requires optional 'diarize-pyannote' dep group and HF_TOKEN/license setup (see docs/runbooks/pyannote-setup.md))")
     p_diarize.add_argument("--out", required=True, help="Output path for speaker_segments.v1.json")
     p_diarize.add_argument("--config", help="Path to provider config JSON (mock provider: list of segments to return)")
 

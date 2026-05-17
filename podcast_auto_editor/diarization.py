@@ -186,20 +186,16 @@ class PyannoteDiarizationProvider(DiarizationProvider):
                 use_auth_token=token,
             )
         except Exception as exc:
-            err_str = str(exc)
-            if "403" in err_str or "license" in err_str.lower() or "access" in err_str.lower() or "forbidden" in err_str.lower():
-                raise DiarizationProviderError(
-                    f"Access to {self._MODEL_ID} is restricted. "
-                    f"Accept the model license at {self._LICENSE_URL}, "
-                    "then set HF_TOKEN and re-run."
-                ) from exc
-            # 401 / missing-token / other auth failure
+            # from None: prevent chained traceback from leaking HF_TOKEN if
+            # pyannote or huggingface_hub embeds it in the underlying exception text.
             raise DiarizationProviderError(
                 f"Failed to load {self._MODEL_ID}. "
-                "Ensure HF_TOKEN is set in your environment and that you have "
-                f"accepted the model license at {self._LICENSE_URL}. "
-                f"Original error: {type(exc).__name__}"
-            ) from exc
+                "Either the model license has not been accepted OR HF_TOKEN is "
+                "missing / invalid. "
+                f"Accept the license and set HF_TOKEN, then re-run. "
+                f"See {self._LICENSE_URL} for setup instructions. "
+                f"Original error type: {type(exc).__name__}"
+            ) from None
 
         # Optional: move to GPU when available (CPU default for local-first use)
         try:

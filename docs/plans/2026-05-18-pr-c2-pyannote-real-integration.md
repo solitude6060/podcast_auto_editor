@@ -145,3 +145,22 @@ UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p n
 - Add `docs/runbooks/pyannote-setup.md` in the implementation PR, including license acceptance and `hf download pyannote/speaker-diarization-3.1` pre-cache instructions.
 - Gate real-model pytest with both `PAE_PYANNOTE_REAL=1` and `HF_TOKEN`; normal CI must remain slim and offline.
 - Do not broaden the CLI unless the real fixtures prove default speaker clustering needs user-supplied min/max speaker counts.
+
+## 9. Post-PR-C2 Deferred Items (triple-review follow-up, 2026-05-18)
+
+**2-speaker accuracy verification deferred to manual smoke.** Plan §4 listed
+`test_pyannote_real_two_speaker_clip_detects_two_labels` as a required env-gated real
+test. No 2-speaker fixture audio file exists in the repo; committing binary audio is
+out of scope for this PR. The accuracy contract is instead verified via manual smoke
+using the operator's own short clip per the command in §7 ("Manual smoke on a real
+short clip"). The runbook (`docs/runbooks/pyannote-setup.md`) documents the diarize
+command and expected JSON shape. This deferral is explicit: the env-gated real test
+suite only covers schema_version, start-before-end, silence (0 or 1 segments), token
+non-leakage, and pipeline caching — all verifiable without a known-good 2-speaker clip.
+
+**Silence one-speaker test renamed (MEDIUM-3 triple-review partial fix).**
+`test_pyannote_real_one_speaker_clip_detects_one_label` → renamed to
+`test_pyannote_real_silence_returns_zero_or_one_segments` with assertion `>= 0 AND <= 1`.
+Silence correctly produces zero segments when pyannote finds no speech; the original
+`<= 1` was technically correct but the test name implied exactly-one-speaker which is
+not true for silence input.
