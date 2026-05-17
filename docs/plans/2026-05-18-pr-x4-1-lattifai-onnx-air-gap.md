@@ -191,3 +191,79 @@ Implement the smallest provider path that loads `acoustic_opt.onnx` from a pre-d
 IMPLEMENTER MUST VERIFY — source unknown: inspect upstream `lattifai-python` and/or downloaded model files for audio preprocessing, input tensor names, output tensor names, token / word mapping, transition handling, and decoder algorithm before writing the green implementation.
 
 Do not auto-download the model, do not add runtime network calls, do not change README files, do not add WhisperX fallback, and do not broaden dependency groups beyond the Lattifai alignment path.
+
+## 9. Implementation Research Findings (2026-05-18)
+
+Added by executor during PR-X4.1 implementation. Resolves the "IMPLEMENTER MUST
+VERIFY — source unknown" items from §3 and §5.
+
+### 9.1 Verified ONNX interface
+
+Source: `lattifai-python` source at `src/lattifai/alignment/lattice1_worker.py`
+and `LattifAI/Lattice-1` `config.json`.
+
+| Property | Value | Source |
+|---|---|---|
+| Sample rate | 16,000 Hz | `config.json` |
+| Frame shift | 0.01 s (10 ms) | `config.json` |
+| Subsampling factor | 2 | `config.json` |
+| ONNX input tensor name | `"audios"` | `lattice1_worker.py` assertion |
+| ONNX input shape | `(1, T)` float32 raw PCM at 16 kHz | `lattice1_worker.py` docstring |
+| ONNX output shape | `(1, T_sub, vocab_size)` float32 | `lattice1_worker.py` |
+| ONNX call | `session.run(None, {"audios": ndarray})` | `lattice1_worker.py` |
+
+### 9.2 Decode blocker confirmed
+
+The upstream decoder uses **k2py** (`k2` FST/lattice library):
+- Batch mode: `k2.AlignSegments()` on full emission output
+- Streaming mode: `OnlineDenseIntersecter` with beam search parameters
+
+k2 has **no PyPI wheel for Python >=3.11** (latest 1.24.1 wheels are macOS
+x86-64, Python 3.7–3.10 only). This project requires Python >=3.11. k2 cannot
+be installed as a dependency.
+
+The SDK `tokenizer.tokenize()` method POSTs to a backend HTTP service for
+pronunciation lookup and lattice construction. This makes the tokenization step
+network-dependent — incompatible with the air-gap constraint.
+
+No documented local-only decode path exists in the public SDK or model card.
+
+### 9.3 words.bin format
+
+`words.bin` is loaded via `pickle.load()` (or msgpack fallback). The loaded
+data structure contains `words` list, `dictionaries` mapping, and `oov_word`.
+This is the pronunciation dictionary used by the lattice decoder. It cannot
+be used independently without the k2 decoder framework.
+
+### 9.4 Implementation decision
+
+Per plan §2: "Do NOT guess at the algorithm — wrong decoder = wrong alignments
+= silent data corruption downstream."
+
+The implemented `LattifaiAlignmentProvider.align()` in PR-X4.1:
+- Validates model_path / PAE_LATTIFAI_ONNX_PATH (step 1)
+- Checks acoustic_opt.onnx exists (step 2)
+- Lazy-imports onnxruntime (step 3)
+- Returns [] for empty transcripts (step 4)
+- Raises AlignmentProviderError with decode-blocker explanation for non-empty
+  transcripts (step 5) — rather than guessing at CTC or lattice decode
+
+### 9.5 Required follow-up (next PR)
+
+To enable real alignment output, one of the following must be resolved:
+
+**Option A — Pure-Python CTC greedy decode**: determine whether the ONNX
+emission output is CTC-compatible. If vocab_size matches a known CTC blank
+layout and words.bin can serve as the label vocabulary, implement greedy
+argmax decode + blank collapsing locally. Requires downloading the model and
+inspecting vocab_size vs words.bin entry count. No k2 dependency.
+
+**Option B — k2 subprocess shim**: run k2 decode in a Python 3.9/3.10 venv
+subprocess. Complex, fragile, but preserves the full upstream decode fidelity.
+
+**Option C — Wait for k2 Python 3.11 wheel**: monitor
+https://github.com/k2-fsa/k2 for a 3.11-compatible release.
+
+**Option D — Contribute local-only tokenize() to lattifai-python**: upstream
+PR to `lattifai-python` that adds a `local_only=True` path to `tokenize()`
+using words.bin directly without the backend POST.
