@@ -11,7 +11,7 @@ from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
 from .ai_models import build_model_catalog, build_model_readiness_report, build_pull_plan, format_model_catalog_markdown, format_model_readiness_markdown, format_pull_plan_script
 from .ai_drafts import AI_DRAFT_REL_PATH, AIServiceError, build_ai_explanation, generate_ai_draft
 from .asr import ASRProviderError, provider_names, transcribe_to_file
-from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
+from .artifacts import ensure_run_dirs, run_paths, validate_episode_id, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
 from .explain import explain_operation, format_explanation_markdown
 from .exports import select_export_profiles
@@ -298,7 +298,7 @@ def _validate_real_audio_path(path: str | Path) -> Path:
         raise ValueError(f"audio path must be a regular file: {audio_path}")
     if audio_path.suffix.lower() != ".wav":
         raise ValueError(f"audio file must be a .wav file: {audio_path}")
-    return audio_path
+    return audio_path.resolve(strict=True)
 
 
 def _copy_real_audio_for_quickstart(source: Path, out_root: Path, episode_id: str) -> Path:
@@ -1020,11 +1020,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "quickstart":
         out_root = Path(args.out)
-        out_root.mkdir(parents=True, exist_ok=True)
         media_dir = out_root / "media"
         runs_dir = out_root / "runs"
         if args.real_audio:
             try:
+                validate_episode_id(args.episode_id)
                 audio_path = _copy_real_audio_for_quickstart(
                     _validate_real_audio_path(args.real_audio),
                     out_root,
@@ -1034,6 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"quickstart real audio error: {exc}", file=sys.stderr)
                 return 1
         else:
+            out_root.mkdir(parents=True, exist_ok=True)
             try:
                 paths = make_demo_fixtures(str(media_dir))
             except FileNotFoundError as exc:
