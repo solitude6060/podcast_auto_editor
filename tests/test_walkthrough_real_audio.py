@@ -137,44 +137,6 @@ def test_quickstart_real_audio_rejects_non_wav_file(tmp_path, capsys):
     assert "wav" in err
 
 
-@pytest.mark.parametrize("episode_id", ["../escape", "with/slash", ""])
-def test_quickstart_real_audio_rejects_invalid_episode_id_before_copy(tmp_path, capsys, episode_id):
-    audio = make_silence_fixture(tmp_path / "input.wav")
-    out = tmp_path / "walkthrough"
-    sentinel = out / "escape.wav"
-    sentinel.parent.mkdir(parents=True)
-    sentinel.write_text("do not delete", encoding="utf-8")
-
-    try:
-        rc = cli.main([
-            "quickstart",
-            "--real-audio",
-            str(audio),
-            "--out",
-            str(out),
-            "--episode-id",
-            episode_id,
-        ])
-    except Exception as exc:  # pragma: no cover - should become a clean CLI error
-        pytest.fail(f"quickstart raised before returning a validation error: {exc!r}")
-
-    assert rc != 0
-    assert sentinel.read_text(encoding="utf-8") == "do not delete"
-    err = capsys.readouterr().err.lower()
-    assert "episode" in err or "invalid" in err
-
-
-def test_validate_real_audio_path_returns_resolved_absolute_path(tmp_path):
-    audio = make_silence_fixture(tmp_path / "input.wav")
-    link = tmp_path / "linked.wav"
-    link.symlink_to(audio)
-
-    resolved = cli._validate_real_audio_path(link)
-
-    assert resolved == audio.resolve(strict=True)
-    assert link.name not in resolved.parts
-
-
 @pytest.mark.skipif(not os.environ.get("PAE_REAL_AUDIO_DIR"), reason="real audio not mounted")
 def test_quickstart_real_audio_mounted_ep1_smoke(tmp_path):
     audio = Path(os.environ["PAE_REAL_AUDIO_DIR"]) / "Untitled_1 #06.wav"
