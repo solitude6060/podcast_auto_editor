@@ -50,8 +50,9 @@ Core run artifacts are under:
 runs/walkthrough/runs/ep1-real/timeline.proposed.v1.json
 runs/walkthrough/runs/ep1-real/timeline.accepted.v1.json
 runs/walkthrough/runs/ep1-real/exports/transcript.json
-runs/walkthrough/runs/ep1-real/exports/episode.edited.wav
 ```
+
+If the recording passes the existing publish quality gates, publish exports are written under `runs/walkthrough/runs/ep1-real/exports/`. If the recording fails those gates, the walkthrough prints a warning and still writes inspection artifacts; do not treat that run as publish-ready.
 
 ## Expected output shape
 
@@ -119,6 +120,7 @@ http://127.0.0.1:8765
 - The input WAV is hardlinked or copied into `runs/walkthrough/raw/ep1-real.wav`; the original `/media/` file is never modified.
 - Re-running `scripts/walkthrough-real-podcast.sh` with the same `--out` removes and recreates that output directory.
 - The walkthrough intentionally uses the stub transcript provider and dry AI draft mode.
+- A publish quality-gate warning means PR-A2 inspection artifacts were produced, but mastering/export readiness still needs separate follow-up.
 
 ## 繁體中文
 

@@ -54,4 +54,25 @@ Rejected alternative: a new `walkthrough` subcommand. It would make the real-aud
 
 ## Verification
 
-Pending.
+- `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest tests/test_walkthrough_real_audio.py -q -p no:cacheprovider` => 5 passed, 1 skipped.
+- `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 271 passed, 1 skipped.
+- `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests` => passed.
+- Mounted-audio smoke:
+  ```bash
+  bash scripts/walkthrough-real-podcast.sh --audio "/media/ma/1AF83466F83441F5/startup/ep1-test-soundtrack-20260429/Untitled_1 #06.wav"
+  ```
+  Result: completed and produced inspection artifacts. The EP1 smoke WAV failed the existing publish loudness gate (`quality gate failed for archive-wav: loudness`), so `quickstart --real-audio` emitted a warning and wrote review/recipe/AI-draft artifacts without marking publish exports as ready.
+- Mounted-audio artifact paths:
+  ```text
+  runs/walkthrough/runs/ep1-real/review-session.json
+  runs/walkthrough/runs/ep1-real/recipe.v1.json
+  runs/walkthrough/runs/ep1-real/ai/ai-draft.v1.json
+  ```
+- Sample JSON keys:
+  ```text
+  review-session.json: decisions, schema_version, source_timeline
+  recipe.v1.json: accepted_timeline, ai_draft, config, generated_at, schema_version, software, source_media
+  ai-draft.v1.json: base_url, chapters, dry_prompt, generated_at, max_chapters, metadata, model, notes, operation_explanations, request, retake_decisions, schema_version, show_notes, summary
+  timeline.accepted.v1.json: export_metadata, media_manifest, operations, provenance, recovery, schema_version, timebase, tracks
+  exports/transcript.json: provider, schema_version, segments, source_media
+  ```
