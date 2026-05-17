@@ -165,16 +165,13 @@ PROVIDERS: dict[str, type[TranscriptProvider]] = {
 class Qwen3ASRLocalProvider:
     """Qwen3-ASR (Apache-2.0) — Chinese-optimised ASR with 20-min native chunks.
 
-    Requires the optional ``qwen-asr`` package (install via ``uv add qwen-asr``
-    or ``uv add 'qwen-asr[vllm]'`` for the faster backend). The exact runtime
-    API surface for the v1 ``qwen-asr`` package may evolve; this provider
-    targets the documented ``transcribe`` entry point with ``audio_path``,
-    ``model``, and optional sampling kwargs. Real-world integration (live
-    GPU + real audio) is the explicit follow-up work this provider unlocks.
+    Targets the upstream `qwen-asr` package API:
+    ``Qwen3ASRModel.from_pretrained(model_id).transcribe(audio, language=...)``.
+    Install via ``uv add qwen-asr`` (transformers) or ``uv add 'qwen-asr[vllm]'``
+    (vLLM backend).
 
-    Long audio (>20 min) must be chunked by the caller; the model card
-    documents the 20-minute single-segment limit. Chunk-and-stitch helpers
-    are out of scope for PR-X2.
+    Long audio (>20 min) must be chunked by the caller; the model card documents
+    the 20-minute single-segment cap. Chunk-and-stitch helpers are out of scope.
     """
 
     name = "qwen3-asr-local"
@@ -193,22 +190,32 @@ class Qwen3ASRLocalProvider:
         model_name = str(options.get("model") or "Qwen/Qwen3-ASR-1.7B")
         device = str(options.get("device") or "cuda")
         language = options.get("language")
-        transcribe_fn = getattr(qwen_asr, "transcribe", None)
-        if not callable(transcribe_fn):
+        model_cls = getattr(qwen_asr, "Qwen3ASRModel", None)
+        if model_cls is None:
             raise ASRProviderError(
-                "installed `qwen_asr` package does not expose a callable `transcribe`; "
-                "PR-X2.1 will pin the exact API once the qwen-asr v1 release stabilises. "
-                "For now, manually drive `transformers` until that PR lands."
+                "installed `qwen_asr` package does not expose `Qwen3ASRModel`; "
+                "the upstream API is `from qwen_asr import Qwen3ASRModel; "
+                "Qwen3ASRModel.from_pretrained(model_id).transcribe(...)`. "
+                "Upgrade qwen-asr or pin a version that exports the class."
             )
-        kwargs: dict[str, Any] = {"model": model_name, "device": device}
-        if language:
-            kwargs["language"] = str(language)
         try:
-            raw_segments = transcribe_fn(str(input_path), **kwargs)
+            model = model_cls.from_pretrained(model_name)
+            kwargs: dict[str, Any] = {}
+            if language:
+                kwargs["language"] = str(language)
+            raw_segments = model.transcribe(str(input_path), **kwargs)
+        except ASRProviderError:
+            raise
         except Exception as exc:  # noqa: BLE001 - surface every backend failure as ASRProviderError
             raise ASRProviderError(f"qwen-asr transcribe failed: {exc}") from exc
+        if not isinstance(raw_segments, list):
+            raise ASRProviderError(
+                f"qwen-asr returned unexpected shape {type(raw_segments).__name__}; "
+                "expected a list of {start, end, text} segments. If the upstream API "
+                "changed, this provider needs adjustment (PR-X2.1)."
+            )
         segments: list[dict[str, Any]] = []
-        for seg in raw_segments or []:
+        for seg in raw_segments:
             if not isinstance(seg, dict):
                 continue
             text_value = str(seg.get("text") or "").strip()

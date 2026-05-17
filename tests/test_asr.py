@@ -243,22 +243,29 @@ def test_qwen3_asr_provider_missing_dependency_does_not_write(tmp_path, monkeypa
 
 
 def test_qwen3_asr_provider_normalizes_segments(tmp_path, monkeypatch):
-    """Fake `qwen_asr.transcribe` returning a list of segments must flow
-    through the provider normalised into transcript.v1 shape."""
+    """Triple-review HIGH (Codex upstream verification): real `qwen-asr`
+    exposes `Qwen3ASRModel.from_pretrained(...).transcribe(...)`, NOT a
+    module-level `qwen_asr.transcribe(...)`. Test stubs the class API."""
     import sys
     import types
 
     captured: dict = {}
 
-    def fake_transcribe(audio_path, **kwargs):
-        captured["audio_path"] = audio_path
-        captured["kwargs"] = kwargs
-        return [
-            {"start": 0.0, "end": 1.25, "text": "你好"},
-            {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
-        ]
+    class FakeQwen3ASRModel:
+        @classmethod
+        def from_pretrained(cls, model_id):
+            captured["from_pretrained"] = model_id
+            return cls()
 
-    fake_module = types.SimpleNamespace(transcribe=fake_transcribe)
+        def transcribe(self, audio, language=None):
+            captured["audio"] = audio
+            captured["language"] = language
+            return [
+                {"start": 0.0, "end": 1.25, "text": "你好"},
+                {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
+            ]
+
+    fake_module = types.SimpleNamespace(Qwen3ASRModel=FakeQwen3ASRModel)
     monkeypatch.setitem(sys.modules, "qwen_asr", fake_module)
 
     out = tmp_path / "transcript.json"
@@ -267,7 +274,7 @@ def test_qwen3_asr_provider_normalizes_segments(tmp_path, monkeypatch):
         out,
         provider_name="qwen3-asr-local",
         model="Qwen/Qwen3-ASR-1.7B",
-        device="cuda",
+        language="zh",
     )
 
     data = json.loads(out.read_text())
@@ -276,11 +283,44 @@ def test_qwen3_asr_provider_normalizes_segments(tmp_path, monkeypatch):
         {"start": 0.0, "end": 1.25, "text": "你好"},
         {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
     ]
-    assert captured["kwargs"]["model"] == "Qwen/Qwen3-ASR-1.7B"
-    assert captured["kwargs"]["device"] == "cuda"
+    assert captured["from_pretrained"] == "Qwen/Qwen3-ASR-1.7B"
+    assert captured["language"] == "zh"
 
 
-def test_qwen3_asr_provider_rejects_module_without_transcribe(tmp_path, monkeypatch):
+def test_qwen3_asr_provider_rejects_non_list_response(tmp_path, monkeypatch):
+    """Triple-review HIGH: if the real qwen_asr API returns a dict or
+    other non-list shape (e.g., `{"text": "...", "segments": [...]}`),
+    the provider must raise ASRProviderError, NOT silently write
+    `{segments: []}` to disk."""
+    import sys
+    import types
+
+    class FakeQwen3ASRModel:
+        @classmethod
+        def from_pretrained(cls, model_id):  # noqa: ARG003
+            return cls()
+
+        def transcribe(self, audio, language=None):  # noqa: ARG002
+            return {"text": "你好", "words": [{"start": 0.0, "end": 1.0, "text": "你好"}]}
+
+    fake_module = types.SimpleNamespace(Qwen3ASRModel=FakeQwen3ASRModel)
+    monkeypatch.setitem(sys.modules, "qwen_asr", fake_module)
+
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        assert "shape" in str(exc).lower() or "list" in str(exc).lower()
+    else:
+        raise AssertionError("expected ASRProviderError on unexpected qwen-asr response shape")
+    assert not out.exists()
+
+
+def test_qwen3_asr_provider_rejects_module_without_qwen3asrmodel(tmp_path, monkeypatch):
     """If a future qwen_asr release renames its entry point, surface a clear
     error instead of an AttributeError traceback."""
     import sys
@@ -297,9 +337,9 @@ def test_qwen3_asr_provider_rejects_module_without_transcribe(tmp_path, monkeypa
         )
     except Exception as exc:
         msg = str(exc).lower()
-        assert "transcribe" in msg or "qwen-asr v1" in msg
+        assert "qwen3asrmodel" in msg or "qwen-asr" in msg
     else:
-        raise AssertionError("expected ASRProviderError when qwen_asr lacks transcribe entry")
+        raise AssertionError("expected ASRProviderError when qwen_asr lacks Qwen3ASRModel class")
     assert not out.exists()
 
 
