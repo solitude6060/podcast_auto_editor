@@ -118,6 +118,14 @@ class MockAlignmentProvider(AlignmentProvider):
                 raise AlignmentError("mock alignment config `words`/`segments` must be a list")
             return normalize_word_alignments(words)
         # Deterministic placeholder: split each segment evenly into tokens.
+        # Tokenization rule (triple-review fix): split on ANY whitespace first
+        # (`text.split()` handles \n, \t, multiple spaces, etc.). Each resulting
+        # token that is pure ASCII stays as one token; non-ASCII tokens (CJK)
+        # split into individual characters. So:
+        #   "hello world"   -> ["hello", "world"]
+        #   "hello\nworld"  -> ["hello", "world"]  (newline-only no longer falls through to char-split)
+        #   "你好世界"        -> ["你", "好", "世", "界"]
+        #   "hello 世界"     -> ["hello", "世", "界"]  (was ["hello", "世界"] pre-fix)
         words: list[dict[str, Any]] = []
         for seg in transcript_segments:
             start = float(seg.get("start", 0.0))
@@ -125,7 +133,13 @@ class MockAlignmentProvider(AlignmentProvider):
             text = str(seg.get("text", "")).strip()
             if not text or end <= start:
                 continue
-            tokens = text.split() if " " in text else list(text)
+            tokens: list[str] = []
+            whitespace_split = text.split()
+            for piece in whitespace_split:
+                if piece.isascii():
+                    tokens.append(piece)
+                else:
+                    tokens.extend(list(piece))
             if not tokens:
                 continue
             span = (end - start) / len(tokens)
@@ -170,11 +184,13 @@ class LattifaiAlignmentProvider(AlignmentProvider):
         except ImportError as exc:
             raise AlignmentProviderError(
                 "lattifai is not installed; run `uv add lattifai` to enable Lattifai "
-                "Lattice-1 alignment. Note: the SDK constructs a SyncAPIClient that "
-                "phones home for quota tracking even though the ONNX model is local. "
-                "Use `--provider whisperx` for a fully air-gapped path, or bypass the "
-                "SDK by loading LattifAI/Lattice-1 ONNX directly via onnxruntime. See "
-                "docs/research/2026-05-17-chinese-asr-models.md §2.2 for details."
+                "Lattice-1 alignment. Note: the official SDK initialises an API client "
+                "that may require authentication / usage tracking even though the ONNX "
+                "model itself runs locally. Use `--provider whisperx` for a fully "
+                "air-gapped path, or load LattifAI/Lattice-1 ONNX directly via "
+                "onnxruntime if you need to bypass the SDK. See "
+                "docs/research/2026-05-17-chinese-asr-models.md §2.2 for the "
+                "telemetry-vs-air-gap trade-off."
             ) from exc
         raise AlignmentProviderError(
             "lattifai real-model integration is deferred to follow-up PR-X4.1; "

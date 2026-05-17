@@ -58,6 +58,61 @@ def test_mock_alignment_synthesizes_cjk_per_character():
     assert [w["text"] for w in words] == ["你", "好", "世", "界"]
 
 
+def test_mock_alignment_synthesizes_mixed_cjk_and_ascii():
+    """Triple-review HIGH: 'hello 世界' must produce 3 tokens
+    (ASCII word stays a unit, CJK chars split). Pre-fix it produced 2
+    coarse tokens because `text.split()` treated 世界 as one word."""
+    provider = MockAlignmentProvider()
+    words = provider.align(
+        "audio.wav",
+        [{"start": 0.0, "end": 3.0, "text": "hello 世界"}],
+    )
+    assert [w["text"] for w in words] == ["hello", "世", "界"]
+
+
+def test_mock_alignment_handles_newline_only_text():
+    """Triple-review MEDIUM (Gemini): 'hello\\nworld' has no space but does
+    have whitespace. Pre-fix the `' ' in text` check fell through to
+    list(text), char-splitting 11 chars including the newline. Fix uses
+    text.split() which handles ALL whitespace."""
+    provider = MockAlignmentProvider()
+    words = provider.align(
+        "audio.wav",
+        [{"start": 0.0, "end": 2.0, "text": "hello\nworld"}],
+    )
+    assert [w["text"] for w in words] == ["hello", "world"]
+
+
+def test_mock_alignment_skips_empty_text_and_zero_duration_segments():
+    """Triple-review MEDIUM (Codex): silently skipping these is the
+    documented design; pin the contract so a future refactor doesn't
+    accidentally start raising."""
+    provider = MockAlignmentProvider()
+    words = provider.align(
+        "audio.wav",
+        [
+            {"start": 0.0, "end": 1.0, "text": ""},          # empty → skip
+            {"start": 1.0, "end": 1.0, "text": "x"},         # zero duration → skip
+            {"start": 2.0, "end": 1.5, "text": "y"},         # negative duration → skip
+            {"start": 3.0, "end": 4.0, "text": "real"},      # kept
+        ],
+    )
+    assert [w["text"] for w in words] == ["real"]
+
+
+def test_align_to_file_writes_empty_segments_artefact(tmp_path):
+    """Triple-review HIGH (MiniMax + Codex): empty transcript_segments
+    through align_to_file produces a valid artefact with `words: []`,
+    same intentional behaviour the diarization test pins."""
+    out = tmp_path / "out.json"
+    result = align_to_file("audio.wav", [], out, provider="mock")
+    assert result == out
+    data = json.loads(out.read_text())
+    assert data["schema_version"] == SCHEMA_VERSION
+    assert data["audio_path"] == "audio.wav"
+    assert data["words"] == []
+
+
 def test_normalize_word_alignments_validates_required_fields():
     with pytest.raises(AlignmentError, match="text"):
         normalize_word_alignments([{"start": 0.0, "end": 1.0}])
@@ -106,6 +161,10 @@ def test_whisperx_provider_raises_clear_error_when_called(tmp_path):
         provider.align("audio.wav", [{"start": 0.0, "end": 1.0, "text": "x"}])
     msg = str(exc_info.value).lower()
     assert "whisperx" in msg or "deferred" in msg
+    # Triple-review MEDIUM (MiniMax F9): error must be AlignmentProviderError,
+    # not raw ImportError leaking through to the caller.
+    assert isinstance(exc_info.value, AlignmentProviderError)
+    assert not isinstance(exc_info.value, ImportError)
 
 
 def test_whisperx_via_align_to_file_surfaces_error_without_writing(tmp_path):
@@ -117,15 +176,15 @@ def test_whisperx_via_align_to_file_surfaces_error_without_writing(tmp_path):
 
 def test_lattifai_provider_raises_clear_error_when_called(tmp_path):
     """PR-X4: Lattifai adapter raises a clear AlignmentProviderError until
-    PR-X4.1 wires real integration. Two distinct paths:
-    - `lattifai` not installed → install hint + air-gap caveat
-    - installed → "deferred to PR-X4.1" message
-    Either way the message mentions lattifai or deferred."""
+    PR-X4.1 wires real integration."""
     provider = LattifaiAlignmentProvider()
     with pytest.raises(AlignmentProviderError) as exc_info:
         provider.align("audio.wav", [{"start": 0.0, "end": 1.0, "text": "x"}])
     msg = str(exc_info.value).lower()
     assert "lattifai" in msg or "deferred" in msg
+    # Triple-review MEDIUM (MiniMax F9): class-level assertion
+    assert isinstance(exc_info.value, AlignmentProviderError)
+    assert not isinstance(exc_info.value, ImportError)
 
 
 def test_lattifai_via_align_to_file_surfaces_error_without_writing(tmp_path):
