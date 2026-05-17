@@ -162,6 +162,85 @@ PROVIDERS: dict[str, type[TranscriptProvider]] = {
 }
 
 
+class Qwen3ASRLocalProvider:
+    """Qwen3-ASR (Apache-2.0) — Chinese-optimised ASR with 20-min native chunks.
+
+    Targets the upstream `qwen-asr` package API:
+    ``Qwen3ASRModel.from_pretrained(model_id).transcribe(audio, language=...)``.
+    Install via ``uv add qwen-asr`` (transformers) or ``uv add 'qwen-asr[vllm]'``
+    (vLLM backend).
+
+    Long audio (>20 min) must be chunked by the caller; the model card documents
+    the 20-minute single-segment cap. Chunk-and-stitch helpers are out of scope.
+    """
+
+    name = "qwen3-asr-local"
+
+    def transcribe(self, input_path: str | Path, **options: Any) -> dict[str, Any]:
+        try:
+            import qwen_asr  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ASRProviderError(
+                "qwen3-asr-local requires the optional `qwen-asr` package; "
+                "install with `uv add qwen-asr` (transformers backend) or "
+                "`uv add 'qwen-asr[vllm]'` (vLLM backend). Single audio segment "
+                "is capped at 20 minutes per the Qwen3-ASR model card; chunk "
+                "long episodes before calling."
+            ) from exc
+        model_name = str(options.get("model") or "Qwen/Qwen3-ASR-1.7B")
+        device = str(options.get("device") or "cuda")
+        language = options.get("language")
+        model_cls = getattr(qwen_asr, "Qwen3ASRModel", None)
+        if model_cls is None:
+            raise ASRProviderError(
+                "installed `qwen_asr` package does not expose `Qwen3ASRModel`; "
+                "the upstream API is `from qwen_asr import Qwen3ASRModel; "
+                "Qwen3ASRModel.from_pretrained(model_id).transcribe(...)`. "
+                "Upgrade qwen-asr or pin a version that exports the class."
+            )
+        try:
+            model = model_cls.from_pretrained(model_name)
+            kwargs: dict[str, Any] = {}
+            if language:
+                kwargs["language"] = str(language)
+            raw_segments = model.transcribe(str(input_path), **kwargs)
+        except ASRProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - surface every backend failure as ASRProviderError
+            raise ASRProviderError(f"qwen-asr transcribe failed: {exc}") from exc
+        if not isinstance(raw_segments, list):
+            raise ASRProviderError(
+                f"qwen-asr returned unexpected shape {type(raw_segments).__name__}; "
+                "expected a list of {start, end, text} segments. If the upstream API "
+                "changed, this provider needs adjustment (PR-X2.1)."
+            )
+        segments: list[dict[str, Any]] = []
+        for seg in raw_segments:
+            if not isinstance(seg, dict):
+                continue
+            text_value = str(seg.get("text") or "").strip()
+            if not text_value:
+                continue
+            segments.append(
+                {
+                    "start": float(seg.get("start", 0.0)),
+                    "end": float(seg.get("end", seg.get("start", 0.0))),
+                    "text": text_value,
+                }
+            )
+        return {
+            "schema_version": "transcript.v1",
+            "provider": self.name,
+            "source_media": str(input_path),
+            "model": model_name,
+            "device": device,
+            "segments": segments,
+        }
+
+
+PROVIDERS[Qwen3ASRLocalProvider.name] = Qwen3ASRLocalProvider
+
+
 def provider_names() -> list[str]:
     return sorted(PROVIDERS)
 

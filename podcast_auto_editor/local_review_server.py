@@ -6,12 +6,18 @@ import shlex
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from .explain import explain_operation
 from .review_session import apply_decision, next_review_item, review_status, write_review_session
 from .timeline import read_json
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+ARTIFACT_ALLOWLIST: tuple[str, ...] = (
+    "timeline.proposed.v1.json",
+    "review-session.json",
+    "ai/ai-draft.v1.json",
+)
 
 
 def validate_review_host(host: str) -> str:
@@ -20,29 +26,108 @@ def validate_review_host(host: str) -> str:
     return host
 
 
-def _paths(run_dir: str | Path) -> tuple[Path, Path]:
-    root = Path(run_dir)
-    return root / "timeline.proposed.v1.json", root / "review-session.json"
+def _resolve_artifact_request(run_dir: Path, request_path: str) -> Path | None:
+    """Return the on-disk path for an allowlisted artifact, or None.
+
+    Only filenames in ARTIFACT_ALLOWLIST are served, and the resolved path
+    must stay inside run_dir to prevent path traversal.
+    """
+    relative = request_path.lstrip("/")
+    if relative not in ARTIFACT_ALLOWLIST:
+        return None
+    run_root = run_dir.resolve()
+    candidate = (run_root / relative).resolve()
+    try:
+        candidate.relative_to(run_root)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
 
 
-def load_review_context(run_dir: str | Path) -> dict[str, Any]:
+def _paths(run_dir: str | Path) -> tuple[Path, Path, Path]:
     root = Path(run_dir)
-    timeline_path, session_path = _paths(root)
+    return root / "timeline.proposed.v1.json", root / "review-session.json", root / "ai/ai-draft.v1.json"
+
+
+def _relative_path(root: Path, value: str | Path | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return Path(value).resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(value).replace("\\", "/")
+
+
+def load_review_context(run_dir: str | Path, *, filter_type: str | None = None) -> dict[str, Any]:
+    root = Path(run_dir)
+    timeline_path, session_path, ai_draft_path = _paths(root)
     timeline = read_json(timeline_path)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(timeline_path), "decisions": []}
     operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
+    ai_draft = _relative_path(root, ai_draft_path) if ai_draft_path.exists() else None
+    if filter_type:
+        filtered_ops = [op for op in operations if op.get("type") == filter_type]
+        timeline_for_next = {**timeline, "operations": filtered_ops}
+    else:
+        timeline_for_next = timeline
     return {
         "run_dir": str(root),
         "timeline": str(timeline_path),
         "session": str(session_path),
+        "ai_draft": ai_draft,
+        "filter": filter_type,
         "status": review_status(session, total_operations=len(operations)),
-        "next": next_review_item(timeline, session, session_path=str(session_path)),
+        "next": next_review_item(timeline_for_next, session, session_path=str(session_path)),
     }
+
+
+def find_operation(run_dir: str | Path, operation_id: str) -> dict[str, Any] | None:
+    """Return the canonical per-operation payload for ``operation_id``, or None.
+
+    The shape mirrors ``review_session.next_review_item`` so the dashboard's
+    detail pane and the `/api/status`-driven `next` pane can share rendering
+    logic. Fields: operation_id, type, state, risk, confidence, source,
+    detector, reason_code, evidence_text, required_review, preview_ref,
+    removed_ref, decision_commands.
+    """
+    root = Path(run_dir)
+    timeline_path, session_path, _ = _paths(root)
+    if not timeline_path.exists():
+        return None
+    timeline = read_json(timeline_path)
+    operations = timeline.get("operations", []) if isinstance(timeline.get("operations"), list) else []
+    for op in operations:
+        if str(op.get("operation_id")) != operation_id:
+            continue
+        explanation = explain_operation(timeline, operation_id)
+        artifact_refs = explanation.get("artifact_refs", {}) if isinstance(explanation.get("artifact_refs"), dict) else {}
+        return {
+            "operation_id": operation_id,
+            "type": op.get("type"),
+            "state": op.get("state"),
+            "risk": op.get("risk"),
+            "confidence": op.get("confidence"),
+            "source": op.get("source_range"),
+            "detector": explanation.get("detector"),
+            "reason_code": explanation.get("reason_code"),
+            "evidence_text": explanation.get("evidence_text"),
+            "required_review": explanation.get("required_review"),
+            "preview_ref": artifact_refs.get("preview"),
+            "removed_ref": artifact_refs.get("removed"),
+            "decision_commands": {
+                "accept": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision accept --reviewer <name>",
+                "reject": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision reject --reviewer <name>",
+                "undo": f"podcast-auto-editor review decide {session_path} --operation-id {operation_id} --decision undo --reviewer <name>",
+            },
+        }
+    return None
 
 
 def handle_api_decision(run_dir: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     root = Path(run_dir)
-    _, session_path = _paths(root)
+    _, session_path, _ = _paths(root)
     session = read_json(session_path) if session_path.exists() else {"schema_version": "review-session.v1", "source_timeline": str(_paths(root)[0]), "decisions": []}
     session = apply_decision(
         session,
@@ -71,21 +156,40 @@ def build_review_app_html(run_dir: str | Path) -> str:
     button {{ margin-right: .5rem; }}
     label {{ display: block; margin: .5rem 0; }}
     input {{ min-width: 18rem; }}
-    #next {{ border: 1px solid #ddd; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }}
+    section {{ border: 1px solid #ddd; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }}
+    .muted {{ color: #555; }}
     pre {{ background: #f6f8fa; overflow: auto; padding: 1rem; }}
   </style>
 </head>
 <body>
   <h1>Podcast Auto Editor Review</h1>
-  <p>Run directory: <code>{_escape(Path(run_dir))}</code></p>
-  <p>State file: <code>review-session.json</code></p>
-  <section id=\"next\">Loading next operation…</section>
-  <label>Reviewer <input id=\"reviewer\" value=\"local-reviewer\" autocomplete=\"name\"></label>
-  <label>Note <input id=\"note\" placeholder=\"Optional decision note\"></label>
-  <button id=\"accept\" type=\"button\" onclick=\"decideCurrent('accept')\">Accept</button>
-  <button id=\"reject\" type=\"button\" onclick=\"decideCurrent('reject')\">Reject</button>
-  <button id=\"undo\" type=\"button\" onclick=\"decideCurrent('undo')\">Undo</button>
-  <pre id=\"status\">Loading…</pre>
+  <section>
+    <h2>Run Dashboard</h2>
+    <p>Run directory: <code>{_escape(Path(run_dir))}</code></p>
+    <p>State file: <code>review-session.json</code></p>
+    <p>AI Draft: <span id=\"ai-draft\" class=\"muted\">Loading…</span></p>
+  </section>
+  <section>
+    <h2>Next</h2>
+    <div id=\"next\">Loading next operation…</div>
+    <label>Reviewer <input id=\"reviewer\" value=\"local-reviewer\" autocomplete=\"name\"></label>
+    <label>Note <input id=\"note\" placeholder=\"Optional decision note\"></label>
+    <button id=\"accept\" type=\"button\" onclick=\"decideCurrent('accept')\">Accept</button>
+    <button id=\"reject\" type=\"button\" onclick=\"decideCurrent('reject')\">Reject</button>
+    <button id=\"undo\" type=\"button\" onclick=\"decideCurrent('undo')\">Undo</button>
+  </section>
+  <section>
+    <h2>Artifacts</h2>
+    <ul id=\"artifact-list\">
+      <li><a href=\"timeline.proposed.v1.json\">timeline.proposed.v1.json</a></li>
+      <li><a href=\"review-session.json\">review-session.json</a></li>
+      <li id=\"artifact-ai-draft\"></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Status</h2>
+    <pre id=\"status\">Loading…</pre>
+  </section>
   <script>
     let currentOperation = null;
 
@@ -107,10 +211,32 @@ def build_review_app_html(run_dir: str | Path) -> str:
       target.textContent = summary;
     }}
 
+    function setAiDraft(status) {{
+      const aiDraft = document.getElementById('ai-draft');
+      const artifactItem = document.getElementById('artifact-ai-draft');
+      if (status.ai_draft) {{
+        const link = document.createElement('a');
+        link.href = status.ai_draft;
+        link.textContent = status.ai_draft;
+        aiDraft.textContent = '';
+        aiDraft.appendChild(link);
+
+        artifactItem.textContent = '';
+        const itemLink = document.createElement('a');
+        itemLink.href = status.ai_draft;
+        itemLink.textContent = status.ai_draft;
+        artifactItem.appendChild(itemLink);
+        return;
+      }}
+      aiDraft.textContent = 'Not generated yet';
+      artifactItem.textContent = 'AI draft missing';
+    }}
+
     async function refresh() {{
       const status = await fetch('/api/status').then(r => r.json());
       document.getElementById('status').textContent = JSON.stringify(status, null, 2);
       renderNext(status);
+      setAiDraft(status);
     }}
 
     async function decide(operation_id, decision, reviewer, note) {{
@@ -130,6 +256,19 @@ def build_review_app_html(run_dir: str | Path) -> str:
       );
       document.getElementById('note').value = '';
     }}
+
+    document.addEventListener('keydown', (event) => {{
+      const tag = event.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (event.key === 'a') decideCurrent('accept');
+      else if (event.key === 'r') decideCurrent('reject');
+      else if (event.key === 'u') decideCurrent('undo');
+      // j and k both advance to the next pending operation. Real prev
+      // navigation is reserved for a follow-up PR — kept consistent so muscle
+      // memory does not accidentally regress a decision.
+      else if (event.key === 'j') refresh();
+      else if (event.key === 'k') refresh();
+    }});
 
     refresh();
   </script>
@@ -201,7 +340,8 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib hook name
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/index.html"}:
             body = build_review_app_html(self.run_dir).encode()
             self.send_response(200)
@@ -211,7 +351,39 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/api/status":
-            self._send_json(load_review_context(self.run_dir))
+            params = parse_qs(parsed.query)
+            filter_values = params.get("filter") or []
+            filter_type = filter_values[0] if filter_values else None
+            self._send_json(load_review_context(self.run_dir, filter_type=filter_type))
+            return
+        if path.startswith("/api/operation/"):
+            raw_id = path[len("/api/operation/"):]
+            # Decode percent-encoded variants (e.g. %2e%2e, %2F) before checking
+            # the deny list so encoded traversal cannot bypass the guard.
+            operation_id = unquote(raw_id)
+            if (
+                not operation_id
+                or "/" in operation_id
+                or "\\" in operation_id
+                or operation_id in {".", ".."}
+                or any(ord(ch) < 0x20 for ch in operation_id)
+            ):
+                self.send_error(404)
+                return
+            op = find_operation(self.run_dir, operation_id)
+            if op is None:
+                self.send_error(404)
+                return
+            self._send_json(op)
+            return
+        artifact = _resolve_artifact_request(self.run_dir, path)
+        if artifact is not None:
+            body = artifact.read_bytes()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         self.send_error(404)
 

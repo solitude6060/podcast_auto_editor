@@ -2,9 +2,52 @@
 
 繁體中文版本：[`README.zh-TW.md`](README.zh-TW.md)
 
-Local-first, CLI-first MVP for full-length podcast post-production.
+## Why this exists
 
-The project uses a canonical reversible `timeline.v1` before media mutation. It is audio-first (WAV/MP3/M4A), optionally supports MP4 sync/export, and keeps automated edits inspectable through preview, diff, and recovery artifacts.
+- **Runs entirely on your laptop.** No accounts, no sign-up, no upload. Your audio never leaves the disk.
+- **Free, no subscription, no metered credits.** Edit a 90-minute episode in March, take April off, edit twice in May. The cost is zero either way.
+- **Every edit is reviewable before it ships.** The pipeline produces a `timeline.v1` JSON of proposed cuts plus per-operation preview clips; you accept or reject each one in the dashboard. No AI "fix" lands silently.
+- **Reproducible edit recipes.** A run produces an artefact you can check into git and replay against the same source audio months later. No competing tool surveyed in `docs/research/2026-05-17-competitor-landscape.md` ships this.
+
+## How it compares
+
+| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
+|---|---|---|---|---|
+| Runs locally | no | no | no | **yes** |
+| Audio uploaded to vendor | yes | yes | yes | **no** |
+| Monthly subscription floor | $16–50 | $24–79 | $11–90 | **free** |
+| Metered AI credits | yes (per minute) | yes | yes (per hour) | **no** |
+| Per-edit accept/reject UI | partial | partial | report only | **yes** |
+| Git-checkable edit recipe | no | no | no | **yes** (planned, see roadmap) |
+
+Sourced from `docs/research/2026-05-17-competitor-landscape.md` (2025–2026 vendor pricing pages and Reddit / G2 complaints).
+
+## What this is
+
+A post-production pipeline for spoken-word podcasts that runs on your laptop. It uses a canonical reversible `timeline.v1` before media mutation, is audio-first (WAV / MP3 / M4A), optionally supports MP4 sync / export, and keeps automated edits inspectable through preview, diff, and recovery artifacts.
+
+The tool:
+- Detects silence and proposes timeline cuts (auto-accepted only for deterministic silence; speech-changing cuts always require review).
+- Generates transcripts, subtitles, and chapter markers.
+- Drafts AI chapter / summary / show notes (review-only; never auto-applied; works offline via `--dry-prompt`).
+- Renders publishable archive WAV plus podcast stereo / mono MP3 outputs with LUFS and true-peak gates.
+- Produces `timeline.v1` plus a recovery map so every accepted cut is reversible.
+
+## What this is not
+
+- **Not a DAW replacement.** Reaper / Hindenburg / Audacity are still the right tools for multi-track mixing, plug-in effects, and creative editing.
+- **Not a cloud recorder.** For remote multi-host recording, keep using Riverside / SquadCast / Zencastr and import the resulting files here.
+- **Not a voice cloner.** Synthetic voice generation is intentionally out of scope.
+- **Not a publishing pipeline.** RSS / Spotify / Apple uploads happen elsewhere.
+
+## Install (Linux + uv)
+
+```bash
+bash scripts/install.sh
+uv run python -m podcast_auto_editor quickstart
+```
+
+`install.sh` runs `uv sync --group dev`, generates demo fixtures if `ffmpeg` is present, and prints the next steps. `quickstart` then generates the demo audio, drives the pipeline against it, and prints the run directory plus follow-up commands (`report`, `review serve`). macOS and WSL paths are documented here but not yet verified by CI.
 
 ## Quickstart
 
@@ -96,6 +139,132 @@ Speech cleanup heuristics can propose filler or false-start removals as `speech_
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
 
+## Chinese podcasts (drop-in: Belle-whisper-large-v3-zh)
+
+`faster-whisper-local` accepts any HuggingFace-compatible weights ID via `--model`. For Chinese content, drop in `BELLE-2/Belle-whisper-large-v3-zh` (Apache-2.0) without changing the rest of the pipeline:
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider faster-whisper-local \
+  --model BELLE-2/Belle-whisper-large-v3-zh \
+  --device cuda --compute-type float16 \
+  --out transcript.json
+```
+
+Reported CER improvement vs vanilla `whisper-large-v3` (model card):
+- AISHELL-1: 8.085 → **2.781**
+- AISHELL-2: 5.475 → **3.786**
+- WenetSpeech net: 11.72 → **8.865**
+- WenetSpeech meeting: 20.15 → **11.246**
+- HKUST: 28.597 → **16.440**
+
+Trade-offs: trained on simplified Chinese only (繁中 / Taiwan Mandarin unverified).
+
+For higher-accuracy Chinese ASR with native long-audio support (20-min single-segment), use the **`qwen3-asr-local`** provider (added in PR-X2):
+
+```bash
+uv add qwen-asr  # optional dep; vLLM backend: uv add 'qwen-asr[vllm]'
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider qwen3-asr-local \
+  --model Qwen/Qwen3-ASR-1.7B \
+  --device cuda \
+  --out transcript.json
+```
+
+Chinese WER vs whisper-large-v3 (per Qwen3-ASR model card): WenetSpeech meeting 5.88 vs 19.11; AISHELL-2 2.71 vs 5.06; Taiwan CV-zh-tw 3.77. See `docs/research/2026-05-17-chinese-asr-models.md` for the full landscape. The model card caps single-segment audio at 20 minutes; chunk longer episodes before calling.
+
+## Diarization (optional)
+
+The tool can attach a `speaker_id` label to each transcript cue so AI chapter drafts, show-notes, and per-speaker filler detection can attribute speech correctly. The provider interface is pluggable:
+
+- **`mock`** (offline, ships in this repo) reads a JSON config of expected segments and returns them verbatim. Use this in CI and on dev machines without a HuggingFace token.
+- **`pyannote`** wraps the `pyannote-audio` 3.x community pipeline via a lazy import. Real model integration is being added in a follow-up PR; running it today raises a clear `DiarizationProviderError` telling you whether to install the dep or wait for the integration.
+
+```bash
+# Mock provider — reads segments from a JSON config (offline)
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider mock \
+  --config diarization-config.json \
+  --out runs/episode/speaker_segments.v1.json
+
+# Pyannote provider — requires `uv add pyannote-audio` and HF_TOKEN
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider pyannote \
+  --out runs/episode/speaker_segments.v1.json
+```
+
+Mock config shape (`diarization-config.json`):
+
+```json
+{
+  "segments": [
+    {"start": 0.0,  "end": 12.5, "speaker_id": "spk0", "confidence": 0.95},
+    {"start": 12.5, "end": 30.0, "speaker_id": "spk1", "confidence": 0.92}
+  ]
+}
+```
+
+Output (`speaker_segments.v1.json`): `{schema_version, audio_path, segments: [{start, end, speaker_id, confidence}, ...]}`. JSON is sorted-keys + indent=2 so the artefact is git-diff-friendly. `transcript.v1` cues may optionally carry a `speaker_id` field — existing transcripts without it continue to validate.
+
+## Reproducible edits with `recipe export` / `recipe apply`
+
+A run directory can be bundled into a portable `recipe.v1.json` artefact that captures the source media sha256, the accepted timeline, the config snapshot, and the optional AI draft. Commit the recipe to git; later, replay it against the same source audio to reproduce the same edits deterministically.
+
+```bash
+uv run python -m podcast_auto_editor recipe export \
+  --run runs/episode \
+  --out runs/episode/recipe.v1.json
+
+uv run python -m podcast_auto_editor recipe apply \
+  --recipe runs/episode/recipe.v1.json \
+  --media source-episode.wav \
+  --out runs/episode-replayed
+```
+
+`apply` verifies the source media sha256 against the recipe and refuses to proceed on mismatch. If you intentionally want to apply the same recipe to a re-encoded or modified copy, pass `--allow-media-drift` — the manifest records that the override was used.
+
+The recipe never embeds the audio itself; only the path, sha256, and duration. The accepted timeline is embedded inline so the recipe is self-contained.
+
+## AI assist and explainability
+
+Use `ai draft` to generate review-only artifact suggestions from timeline operations + transcript:
+
+```bash
+uv run python -m podcast_auto_editor ai draft \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+The draft output is written to `ai/ai-draft.v1.json` under the timeline directory by default.
+
+`--dry-run` is an alias for `--dry-prompt` (and implied `--no-net`) for offline or CI-safe runs.
+
+For per-operation explainability, use:
+
+```bash
+uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.json \
+  --operation-id speech_abc123 \
+  --with-ai \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+The server-side AI calls are disabled automatically in `--dry-prompt` / `--dry-run`.
+
+## Docker AI-stack e2e smoke check
+
+Run the local AI stack e2e check script:
+
+```bash
+./scripts/e2e-docker-ai-stack.sh --dry-run
+./scripts/e2e-docker-ai-stack.sh
+```
+
+The script brings up Compose app + ollama profiles (when available), runs a smoke CLI check, and performs clean shutdown.
+
 ## Project and batch dry-run workflow
 
 Use `project init` to create a local project manifest outside `.omx`:
@@ -146,6 +315,7 @@ uv run python -m podcast_auto_editor review launcher runs/episode --out runs/epi
 ```
 
 `review serve` binds to `127.0.0.1` by default and writes decisions to the same `review-session.json` used by the CLI.
+`review serve` also exposes a compact Run Dashboard (status, next operation, AI draft link/status, and artifact links).
 `review launcher` writes local launcher files that start the same localhost-only review server; generated launchers are local artifacts and should not be committed.
 
 ## AI resource profiles

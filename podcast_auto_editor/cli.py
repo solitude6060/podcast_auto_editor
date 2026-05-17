@@ -8,6 +8,7 @@ from pathlib import Path
 from .ai_resources import format_ai_resource_profiles_markdown, get_ai_resource_profile, list_ai_resource_profiles
 from .ai_doctor import build_ai_doctor_report, format_ai_doctor_markdown
 from .ai_models import build_model_catalog, build_model_readiness_report, build_pull_plan, format_model_catalog_markdown, format_model_readiness_markdown, format_pull_plan_script
+from .ai_drafts import AI_DRAFT_REL_PATH, AIServiceError, build_ai_explanation, generate_ai_draft
 from .asr import ASRProviderError, provider_names, transcribe_to_file
 from .artifacts import ensure_run_dirs, run_paths, write_diff_artifacts, write_manifest, write_recovery_artifacts
 from .config import ConfigValidationError, config_to_dict, load_config
@@ -20,6 +21,9 @@ from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episo
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
 from .transcript import TranscriptValidationError, load_transcript_segments
+from .alignment import AlignmentError, align_to_file
+from .diarization import DiarizationError, diarize_to_file
+from .recipe import RecipeError, apply_recipe, export_recipe
 from .timeline import read_json, set_operation_state, validate_timeline, write_json
 
 
@@ -129,6 +133,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_explain = sub.add_parser("explain", help="Explain one timeline operation with detector evidence and review requirements")
     p_explain.add_argument("timeline")
     p_explain.add_argument("--operation-id", required=True)
+    p_explain.add_argument("--with-ai", action="store_true", help="Include local AI explanation fields")
+    p_explain.add_argument("--dry-prompt", action="store_true", help="Build AI request payload without network call")
+    p_explain.add_argument("--no-net", action="store_true", help="Disable AI network call")
+    p_explain.add_argument("--base-url", help="AI base URL (OpenAI-compatible)")
+    p_explain.add_argument("--model", help="AI model name")
+    p_explain.add_argument("--timeout", type=float, default=0.5)
+    p_explain.add_argument("--transcript-json", help="Optional transcript JSON for AI explanation context")
     p_explain.add_argument("--format", choices=("json", "markdown"), default="markdown")
 
     p_project = sub.add_parser("project", help="Project manifest commands")
@@ -143,6 +154,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_dry_run.add_argument("inputs", nargs="+")
     p_batch_dry_run.add_argument("--out", default="runs")
     p_batch_dry_run.add_argument("--fail-fast", action="store_true")
+
+    p_align = sub.add_parser("align", help="Generate word_alignments.v1 from audio + transcript via an alignment provider")
+    p_align.add_argument("input", help="Source audio path")
+    p_align.add_argument("--transcript-json", required=True, help="transcript.v1 JSON to align")
+    p_align.add_argument("--provider", default="mock", choices=("mock", "whisperx", "lattifai"), help="Alignment provider (mock ships offline; whisperx integration deferred to PR-X3.1; lattifai integration deferred to PR-X4.1)")
+    p_align.add_argument("--out", required=True, help="Output path for word_alignments.v1.json")
+    p_align.add_argument("--config", help="Path to provider config JSON (mock provider: list of words to return)")
+
+    p_diarize = sub.add_parser("diarize", help="Generate speaker_segments.v1 from audio via a diarization provider")
+    p_diarize.add_argument("input", help="Source audio path")
+    p_diarize.add_argument("--provider", default="mock", choices=("mock", "pyannote"), help="Diarization provider (mock ships offline; pyannote requires HF_TOKEN and is deferred to PR-C2)")
+    p_diarize.add_argument("--out", required=True, help="Output path for speaker_segments.v1.json")
+    p_diarize.add_argument("--config", help="Path to provider config JSON (mock provider: list of segments to return)")
+
+    p_recipe = sub.add_parser("recipe", help="Export or apply a portable recipe.v1 of a run directory")
+    recipe_sub = p_recipe.add_subparsers(dest="recipe_command", required=True)
+    p_recipe_export = recipe_sub.add_parser("export", help="Bundle a run directory into recipe.v1.json")
+    p_recipe_export.add_argument("--run", required=True, help="Run directory produced by `run` or `dry-run`")
+    p_recipe_export.add_argument("--out", required=True, help="Output recipe path")
+    p_recipe_apply = recipe_sub.add_parser("apply", help="Replay a recipe against source media into a new run directory")
+    p_recipe_apply.add_argument("--recipe", required=True, help="Recipe JSON path")
+    p_recipe_apply.add_argument("--media", required=True, help="Source media path; must match recipe sha256 unless --allow-media-drift")
+    p_recipe_apply.add_argument("--out", required=True, help="Output run directory")
+    p_recipe_apply.add_argument("--allow-media-drift", action="store_true", help="Skip source media sha256 verification")
 
     p_transcribe = sub.add_parser("transcribe", help="Generate transcript JSON with a local provider")
     p_transcribe.add_argument("input")
@@ -182,6 +217,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_ai_models.add_argument("--no-openai-api", action="store_true")
     p_ai_models.add_argument("--timeout", type=float, default=0.5)
     p_ai_models.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_ai_draft = ai_sub.add_parser("draft", help="Generate AI drafting suggestions from timeline and transcript")
+    p_ai_draft.add_argument("--timeline", required=True)
+    p_ai_draft.add_argument("--transcript-json")
+    p_ai_draft.add_argument("--out")
+    p_ai_draft.add_argument("--dry-prompt", action="store_true", help="Build payload only, no network call")
+    p_ai_draft.add_argument("--dry-run", action="store_true", help="Alias for --dry-prompt; do not send network request")
+    p_ai_draft.add_argument("--no-net", action="store_true", help="Skip AI request")
+    p_ai_draft.add_argument("--base-url", help="AI base URL (OpenAI-compatible)")
+    p_ai_draft.add_argument("--model", help="AI model name")
+    p_ai_draft.add_argument("--timeout", type=float, default=0.5)
+    p_ai_draft.add_argument("--max-chapters", type=int, default=8)
+    p_ai_draft.add_argument("--speaker-segments", help="Optional speaker_segments.v1.json for per-speaker attribution")
+    p_ai_draft.add_argument("--speaker-label", action="append", default=[], help="Map speaker id to display label, e.g. spk0=Host. Repeatable.")
+    p_ai_draft.add_argument("--format", choices=("json", "markdown"), default="json")
 
     p_validate_transcript = sub.add_parser("validate-transcript", help="Validate transcript JSON import shape")
     p_validate_transcript.add_argument("transcript_json")
@@ -197,13 +246,45 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_demo = sub.add_parser("demo-fixtures", help="Generate deterministic demo media fixtures with ffmpeg when available")
     p_demo.add_argument("--out", default="demo-fixtures")
+
+    p_quickstart = sub.add_parser("quickstart", help="Run an end-to-end demo: fixtures + pipeline + next-step hints")
+    p_quickstart.add_argument("--out", default="quickstart", help="Output root for demo fixtures and run artefacts")
+    p_quickstart.add_argument("--episode-id", default="demo", help="Episode id under <out>/runs/<episode-id>")
     return parser
+
+
+def _load_review_session_or_empty(session_path: str | Path, source_timeline: str | Path | None = None) -> dict:
+    """Read a review-session.json or return an empty session dict.
+
+    Matches `local_review_server.load_review_context` semantics: review CLI
+    subcommands (`next`, `status`, `decide`) must work against a freshly
+    completed `run` directory where `review-session.json` has not been seeded
+    yet, instead of crashing with FileNotFoundError.
+    """
+    path = Path(session_path)
+    if path.exists():
+        return read_json(path)
+    return {
+        "schema_version": "review-session.v1",
+        "source_timeline": str(source_timeline) if source_timeline else "",
+        "decisions": [],
+    }
 
 
 def _load_optional_transcript(path: str | None) -> list[dict] | None:
     if not path:
         return None
     return load_transcript_segments(path)
+
+
+def _resolve_ai_output_path(timeline_path: str | Path, out: str | None) -> Path:
+    timeline_dir = Path(timeline_path).parent
+    if not out:
+        return timeline_dir / AI_DRAFT_REL_PATH
+    candidate = Path(out)
+    if candidate.suffix.lower() == ".json":
+        return candidate
+    return candidate / AI_DRAFT_REL_PATH
 
 
 def _execute_dry_run(input_path: str | Path, out_dir: str | Path, config, episode_id: str | None = None, transcript_segments: list[dict] | None = None):
@@ -522,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "review":
         if args.review_command == "status":
-            status = review_status(read_json(args.session))
+            status = review_status(_load_review_session_or_empty(args.session))
             if args.format == "json":
                 print(json.dumps(status, indent=2, ensure_ascii=False))
             else:
@@ -530,7 +611,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.review_command == "decide":
             try:
-                session = apply_decision(read_json(args.session), args.operation_id, args.decision, args.reviewer, note=args.note, decided_at=args.decided_at)
+                session = apply_decision(
+                    _load_review_session_or_empty(args.session),
+                    args.operation_id,
+                    args.decision,
+                    args.reviewer,
+                    note=args.note,
+                    decided_at=args.decided_at,
+                )
             except ValueError as exc:
                 print(str(exc), file=sys.stderr)
                 return 1
@@ -547,7 +635,11 @@ def main(argv: list[str] | None = None) -> int:
             print(args.out)
             return 0
         if args.review_command == "next":
-            item = next_review_item(read_json(args.timeline), read_json(args.session), session_path=args.session)
+            item = next_review_item(
+                read_json(args.timeline),
+                _load_review_session_or_empty(args.session, source_timeline=args.timeline),
+                session_path=args.session,
+            )
             if args.format == "json":
                 print(json.dumps(item, indent=2, ensure_ascii=False))
             else:
@@ -571,7 +663,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     if args.command == "explain":
         try:
-            explanation = explain_operation(read_json(args.timeline), args.operation_id)
+            if args.with_ai:
+                timeline = read_json(args.timeline)
+                transcript_segments = _load_optional_transcript(args.transcript_json)
+                explanation = build_ai_explanation(
+                    timeline=timeline,
+                    operation_id=args.operation_id,
+                    transcript_segments=transcript_segments,
+                    base_url=args.base_url,
+                    model=args.model,
+                    timeout_s=args.timeout,
+                    dry_prompt=args.dry_prompt,
+                    no_net=args.no_net,
+                )
+            else:
+                explanation = explain_operation(read_json(args.timeline), args.operation_id)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -630,6 +736,70 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_ai_doctor_markdown(report), end="")
             return 1 if report["overall_status"] == "missing" else 0
+        if args.ai_command == "draft":
+            if not args.transcript_json:
+                print("ai draft requires --transcript-json", file=sys.stderr)
+                return 1
+            try:
+                transcript_segments = _load_optional_transcript(args.transcript_json)
+                timeline = read_json(args.timeline)
+            except (OSError, json.JSONDecodeError, TranscriptValidationError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            timeline_errors = validate_timeline(timeline)
+            if timeline_errors:
+                for error in timeline_errors:
+                    print(error, file=sys.stderr)
+                return 1
+            speaker_segments_payload = None
+            if args.speaker_segments:
+                try:
+                    raw_segments = read_json(args.speaker_segments)
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 1
+                if isinstance(raw_segments, dict) and isinstance(raw_segments.get("segments"), list):
+                    speaker_segments_payload = raw_segments["segments"]
+                elif isinstance(raw_segments, list):
+                    speaker_segments_payload = raw_segments
+                else:
+                    print("--speaker-segments expects speaker_segments.v1 JSON (object with segments array, or raw list)", file=sys.stderr)
+                    return 1
+            speaker_labels_payload: dict[str, str] | None = None
+            if args.speaker_label:
+                labels: dict[str, str] = {}
+                for entry in args.speaker_label:
+                    if "=" not in entry:
+                        print(f"--speaker-label expects spk0=Host form: {entry!r}", file=sys.stderr)
+                        return 1
+                    key, value = entry.split("=", 1)
+                    labels[key.strip()] = value.strip()
+                speaker_labels_payload = labels
+            try:
+                payload = generate_ai_draft(
+                    timeline=timeline,
+                    transcript_segments=transcript_segments,
+                    base_url=args.base_url,
+                    model=args.model,
+                    timeout_s=args.timeout,
+                    max_chapters=args.max_chapters,
+                    dry_prompt=args.dry_prompt or args.dry_run,
+                    no_net=args.no_net or args.dry_run,
+                    timeline_path=args.timeline,
+                    speaker_segments=speaker_segments_payload,
+                    speaker_labels=speaker_labels_payload,
+                )
+            except (OSError, json.JSONDecodeError, TranscriptValidationError, AIServiceError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            out_path = _resolve_ai_output_path(args.timeline, args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(out_path, payload)
+            if args.format == "json":
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print(f"AI draft: {out_path}")
+            return 0
         if args.ai_command == "models":
             if args.readiness:
                 report = build_model_readiness_report(
@@ -659,6 +829,49 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(catalog, indent=2, ensure_ascii=False))
             else:
                 print(format_model_catalog_markdown(catalog), end="")
+            return 0
+    if args.command == "align":
+        try:
+            transcript_segments = _load_optional_transcript(args.transcript_json) or []
+        except (OSError, json.JSONDecodeError, TranscriptValidationError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        try:
+            out = align_to_file(args.input, transcript_segments, args.out, provider=args.provider, config_path=args.config)
+        except AlignmentError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(out)
+        return 0
+    if args.command == "diarize":
+        try:
+            out = diarize_to_file(args.input, args.out, provider=args.provider, config_path=args.config)
+        except DiarizationError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(out)
+        return 0
+    if args.command == "recipe":
+        if args.recipe_command == "export":
+            try:
+                path = export_recipe(args.run, args.out)
+            except RecipeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(path)
+            return 0
+        if args.recipe_command == "apply":
+            try:
+                out = apply_recipe(
+                    args.recipe,
+                    args.media,
+                    args.out,
+                    allow_media_drift=args.allow_media_drift,
+                )
+            except RecipeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(out)
             return 0
     if args.command == "transcribe":
         try:
@@ -749,6 +962,25 @@ def main(argv: list[str] | None = None) -> int:
         paths = make_demo_fixtures(args.out)
         for kind, path in paths.items():
             print(f"{kind}: {path}")
+        return 0
+    if args.command == "quickstart":
+        out_root = Path(args.out)
+        out_root.mkdir(parents=True, exist_ok=True)
+        media_dir = out_root / "media"
+        runs_dir = out_root / "runs"
+        try:
+            paths = make_demo_fixtures(str(media_dir))
+        except FileNotFoundError as exc:
+            print(f"quickstart needs ffmpeg/ffprobe on PATH to generate demo media: {exc}", file=sys.stderr)
+            return 1
+        audio_path = Path(paths.get("audio", media_dir / "demo-silence.wav"))
+        run_paths_obj = run_pipeline(audio_path, runs_dir, load_config(), episode_id=args.episode_id)
+        print(f"demo media: {audio_path}")
+        print(f"run dir:    {run_paths_obj.root}")
+        print()
+        print("Next:")
+        print(f"  uv run python -m podcast_auto_editor report {run_paths_obj.root} --format markdown")
+        print(f"  uv run python -m podcast_auto_editor review serve {run_paths_obj.root}")
         return 0
     parser.error("unreachable")
     return 2

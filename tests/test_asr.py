@@ -146,6 +146,42 @@ def test_faster_whisper_provider_normalizes_segments(tmp_path, monkeypatch):
     assert data["segments"] == [{"start": 0.25, "end": 1.5, "text": "hello world"}]
 
 
+def test_faster_whisper_provider_accepts_belle_whisper_zh_drop_in(tmp_path, monkeypatch):
+    """PR-X1: BELLE-2/Belle-whisper-large-v3-zh is wire-compatible with
+    faster-whisper. The provider must pass the HuggingFace model id through
+    unchanged so users can drop in the Chinese-fine-tuned weights via
+    `--model BELLE-2/Belle-whisper-large-v3-zh` without code changes."""
+    import sys
+    import types
+
+    captured = {}
+
+    class Segment:
+        start = 0.0
+        end = 1.0
+        text = "你好"
+
+    class WhisperModel:
+        def __init__(self, model, device="auto", compute_type="auto"):
+            captured["model"] = model
+
+        def transcribe(self, input_path, beam_size=5):
+            return [Segment()], object()
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=WhisperModel))
+
+    cli.transcribe_to_file(
+        tmp_path / "episode.wav",
+        tmp_path / "transcript.json",
+        provider_name="faster-whisper-local",
+        model="BELLE-2/Belle-whisper-large-v3-zh",
+        device="cuda",
+        compute_type="float16",
+    )
+
+    assert captured["model"] == "BELLE-2/Belle-whisper-large-v3-zh"
+
+
 def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
     captured = {}
 
@@ -177,6 +213,134 @@ def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
 
     assert captured["provider_name"] == "faster-whisper-local"
     assert captured["options"] == {"model": "large-v3", "device": "cuda", "compute_type": "float16"}
+
+
+def test_provider_names_include_qwen3_asr_local():
+    """PR-X2: Qwen3-ASR provider registered as `qwen3-asr-local`."""
+    from podcast_auto_editor.asr import provider_names
+
+    assert "qwen3-asr-local" in provider_names()
+
+
+def test_qwen3_asr_provider_missing_dependency_does_not_write(tmp_path, monkeypatch):
+    """When `qwen_asr` is not installed, transcribe_to_file must raise
+    ASRProviderError with a clear install hint AND not write any output."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", None)  # type: ignore[arg-type]
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        assert "qwen-asr" in str(exc).lower()
+    else:
+        raise AssertionError("expected ASRProviderError when qwen_asr import fails")
+    assert not out.exists(), "transcribe_to_file must not write when provider raises"
+
+
+def test_qwen3_asr_provider_normalizes_segments(tmp_path, monkeypatch):
+    """Triple-review HIGH (Codex upstream verification): real `qwen-asr`
+    exposes `Qwen3ASRModel.from_pretrained(...).transcribe(...)`, NOT a
+    module-level `qwen_asr.transcribe(...)`. Test stubs the class API."""
+    import sys
+    import types
+
+    captured: dict = {}
+
+    class FakeQwen3ASRModel:
+        @classmethod
+        def from_pretrained(cls, model_id):
+            captured["from_pretrained"] = model_id
+            return cls()
+
+        def transcribe(self, audio, language=None):
+            captured["audio"] = audio
+            captured["language"] = language
+            return [
+                {"start": 0.0, "end": 1.25, "text": "你好"},
+                {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
+            ]
+
+    fake_module = types.SimpleNamespace(Qwen3ASRModel=FakeQwen3ASRModel)
+    monkeypatch.setitem(sys.modules, "qwen_asr", fake_module)
+
+    out = tmp_path / "transcript.json"
+    cli.transcribe_to_file(
+        tmp_path / "episode.wav",
+        out,
+        provider_name="qwen3-asr-local",
+        model="Qwen/Qwen3-ASR-1.7B",
+        language="zh",
+    )
+
+    data = json.loads(out.read_text())
+    assert data["provider"] == "qwen3-asr-local"
+    assert data["segments"] == [
+        {"start": 0.0, "end": 1.25, "text": "你好"},
+        {"start": 1.25, "end": 2.5, "text": "歡迎收聽"},
+    ]
+    assert captured["from_pretrained"] == "Qwen/Qwen3-ASR-1.7B"
+    assert captured["language"] == "zh"
+
+
+def test_qwen3_asr_provider_rejects_non_list_response(tmp_path, monkeypatch):
+    """Triple-review HIGH: if the real qwen_asr API returns a dict or
+    other non-list shape (e.g., `{"text": "...", "segments": [...]}`),
+    the provider must raise ASRProviderError, NOT silently write
+    `{segments: []}` to disk."""
+    import sys
+    import types
+
+    class FakeQwen3ASRModel:
+        @classmethod
+        def from_pretrained(cls, model_id):  # noqa: ARG003
+            return cls()
+
+        def transcribe(self, audio, language=None):  # noqa: ARG002
+            return {"text": "你好", "words": [{"start": 0.0, "end": 1.0, "text": "你好"}]}
+
+    fake_module = types.SimpleNamespace(Qwen3ASRModel=FakeQwen3ASRModel)
+    monkeypatch.setitem(sys.modules, "qwen_asr", fake_module)
+
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        assert "shape" in str(exc).lower() or "list" in str(exc).lower()
+    else:
+        raise AssertionError("expected ASRProviderError on unexpected qwen-asr response shape")
+    assert not out.exists()
+
+
+def test_qwen3_asr_provider_rejects_module_without_qwen3asrmodel(tmp_path, monkeypatch):
+    """If a future qwen_asr release renames its entry point, surface a clear
+    error instead of an AttributeError traceback."""
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", types.SimpleNamespace())
+
+    out = tmp_path / "transcript.json"
+    try:
+        cli.transcribe_to_file(
+            tmp_path / "episode.wav",
+            out,
+            provider_name="qwen3-asr-local",
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        assert "qwen3asrmodel" in msg or "qwen-asr" in msg
+    else:
+        raise AssertionError("expected ASRProviderError when qwen_asr lacks Qwen3ASRModel class")
+    assert not out.exists()
 
 
 def test_provider_names_include_optional_whisper_cpp():

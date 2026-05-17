@@ -1,15 +1,53 @@
 # Podcast Auto Editor
 
-本專案是本機優先、CLI 優先的 podcast 後製工具。目標是自動處理完整單集的音訊，並保留可檢查、可回復的剪輯流程。
+English version: [`README.md`](README.md)
 
-目前功能包含：
-- 偵測長靜音並提出剪輯建議。
-- 依 transcript 提出 speech cleanup / retake 建議。
-- 產生 per-operation preview、diff、recovery map。
-- 產生 transcript、SRT、VTT、chapters。
-- 輸出 archive WAV、podcast stereo MP3、podcast mono MP3。
-- 支援 review session，可記錄 accept / reject / undo 決策。
-- 產生本機靜態 HTML report。
+## 為什麼做這個
+
+- **整個流程都在你的筆電上跑。** 不用註冊、不用登入、不用上傳。音檔不會離開你的硬碟。
+- **完全免費，沒有月費，沒有按分鐘計費。** 三月剪 90 分鐘那集，四月休息，五月剪兩集 — 不管怎麼用，成本都是零。
+- **每個剪輯動作都可以審過再上線。** 工具產出一份 `timeline.v1` JSON 列出所有提議的剪輯，加上每段剪輯的試聽檔；你在本機 dashboard 上一個一個按 accept 或 reject。沒有任何 AI 自動幫你改掉的事。
+- **剪輯紀錄是可重現的。** 一次跑完會產一份可以 commit 進 git 的紀錄檔，幾個月後對同一份原始音檔 replay 就會得到一模一樣的成果。`docs/research/2026-05-17-competitor-landscape.md` 裡調查過的競品都沒做這件事。
+
+## 怎麼跟其他工具比
+
+| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
+|---|---|---|---|---|
+| 在本機跑 | 不是 | 不是 | 不是 | **是** |
+| 音檔要上傳給廠商 | 要 | 要 | 要 | **不用** |
+| 月費 | 16–50 美金 | 24–79 美金 | 11–90 美金 | **免費** |
+| 按 AI 用量計費 | 要（按分鐘） | 要 | 要（按小時） | **不用** |
+| 一個一個審剪輯動作 | 部分 | 部分 | 只有報告 | **可以** |
+| 剪輯紀錄可以丟進 git | 不行 | 不行 | 不行 | **可以**（規劃中，見 roadmap） |
+
+資料來源：`docs/research/2026-05-17-competitor-landscape.md`（2025-2026 各家定價頁 + Reddit / G2 用戶抱怨）。
+
+## 這是什麼
+
+一個跑在你筆電上的 podcast 後製流水線。用 canonical 可回復的 `timeline.v1` 在動媒體前就把剪輯記錄起來，主打音訊（WAV / MP3 / M4A），可選擇處理 MP4 同步 / 輸出，所有自動剪輯都透過 preview、diff、recovery 三種紀錄保留下來給你檢查。
+
+具體功能：
+- 偵測長靜音，提議要剪掉的時間點（只有確定的靜音會自動接受，會改動語意的剪輯一律要人工審）。
+- 產生 transcript、字幕（SRT / VTT）、章節標記。
+- 草擬 AI 章節 / 摘要 / show notes（只是建議，絕對不會自動套用；用 `--dry-prompt` 可以不連網）。
+- 輸出 archive WAV 加上 podcast stereo / mono MP3，每個輸出都有 LUFS 跟 true-peak 品質檢查。
+- 產出 `timeline.v1` 跟 recovery map，所有接受的剪輯都可以回復。
+
+## 這不是什麼
+
+- **不是 DAW 替代品。** 多軌混音、效果器、創意剪輯還是該用 Reaper / Hindenburg / Audacity。
+- **不是雲端錄音工具。** 多人遠端錄音請繼續用 Riverside / SquadCast / Zencastr，然後把檔案匯進這裡處理。
+- **不是聲音克隆工具。** 故意不做合成聲音。
+- **不是發布工具。** RSS / Spotify / Apple 上架請用其他工具。
+
+## 安裝（Linux + uv）
+
+```bash
+bash scripts/install.sh
+uv run python -m podcast_auto_editor quickstart
+```
+
+`install.sh` 會跑 `uv sync --group dev`，有 ffmpeg 的話順手產生 demo fixtures，並印出下一步建議。然後 `quickstart` 會產生 demo 音檔、對它跑 pipeline、印出 run 目錄跟建議的後續指令（`report`、`review serve`）。macOS 跟 WSL 的安裝路徑這邊只記錄，CI 尚未驗證。
 
 ## 快速開始
 
@@ -87,6 +125,132 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+## 中文 podcast（drop-in：Belle-whisper-large-v3-zh）
+
+`faster-whisper-local` provider 的 `--model` 接受任何 HuggingFace 相容的模型 ID。中文場景可以直接換到 `BELLE-2/Belle-whisper-large-v3-zh`（Apache-2.0），pipeline 其他部分不用動：
+
+```bash
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider faster-whisper-local \
+  --model BELLE-2/Belle-whisper-large-v3-zh \
+  --device cuda --compute-type float16 \
+  --out transcript.json
+```
+
+對比 vanilla `whisper-large-v3` 的 CER 改善（模型卡數據）：
+- AISHELL-1：8.085 → **2.781**
+- AISHELL-2：5.475 → **3.786**
+- WenetSpeech net：11.72 → **8.865**
+- WenetSpeech meeting：20.15 → **11.246**
+- HKUST：28.597 → **16.440**
+
+注意事項：只用簡體中文資料訓練（繁中 / 台灣國語未驗證）。
+
+要更高準確率 + 原生支援 20 分鐘長音檔的中文 ASR，用 **`qwen3-asr-local`** provider（PR-X2 加的）：
+
+```bash
+uv add qwen-asr  # 可選 dep；vLLM 後端：uv add 'qwen-asr[vllm]'
+uv run python -m podcast_auto_editor transcribe input.wav \
+  --provider qwen3-asr-local \
+  --model Qwen/Qwen3-ASR-1.7B \
+  --device cuda \
+  --out transcript.json
+```
+
+對比 whisper-large-v3 的中文 WER（Qwen3-ASR 模型卡）：WenetSpeech meeting 5.88 vs 19.11；AISHELL-2 2.71 vs 5.06；台灣國語 CV-zh-tw 3.77。完整評估見 `docs/research/2026-05-17-chinese-asr-models.md`。模型卡單段音檔上限 20 分鐘，長 podcast 要先切片再呼叫。
+
+## Diarization 講者分離（可選）
+
+工具可以幫每個 transcript cue 標上 `speaker_id`（哪個人講的），讓 AI 章節草稿、show notes、per-speaker filler 偵測都能正確歸屬。Provider 介面是可換的：
+
+- **`mock`**（離線、內建）— 讀一份 JSON config 把預期 segments 直接回傳。CI 跟沒有 HuggingFace token 的開發機都用這個。
+- **`pyannote`** — 用 lazy import 包裝 `pyannote-audio` 3.x。實機整合留到後續 PR；現在跑會丟一個清楚的 `DiarizationProviderError`，訊息會告訴你是要先 `uv add pyannote-audio` 還是等實機整合 PR 落地。
+
+```bash
+# Mock provider — 從 JSON config 讀 segments（離線）
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider mock \
+  --config diarization-config.json \
+  --out runs/episode/speaker_segments.v1.json
+
+# Pyannote provider — 需要 `uv add pyannote-audio` 跟 HF_TOKEN
+uv run python -m podcast_auto_editor diarize input.wav \
+  --provider pyannote \
+  --out runs/episode/speaker_segments.v1.json
+```
+
+Mock config 格式（`diarization-config.json`）：
+
+```json
+{
+  "segments": [
+    {"start": 0.0,  "end": 12.5, "speaker_id": "spk0", "confidence": 0.95},
+    {"start": 12.5, "end": 30.0, "speaker_id": "spk1", "confidence": 0.92}
+  ]
+}
+```
+
+輸出（`speaker_segments.v1.json`）：`{schema_version, audio_path, segments: [{start, end, speaker_id, confidence}, ...]}`。JSON 用 sorted-keys + indent=2，git diff 友善。`transcript.v1` cue 可以選擇性帶 `speaker_id` 欄位，沒帶的舊 transcript 一樣會 validate。
+
+## 可重現的剪輯紀錄（`recipe export` / `recipe apply`）
+
+可以把整個 run 目錄打包成一份可攜帶的 `recipe.v1.json`，內容包含原始音檔的 sha256、accepted timeline、config 快照、以及（如果有的話）AI 草稿。把 recipe 提交進 git，幾個月後對同一份原始音檔 replay 一次，就會得到一模一樣的剪輯成果。
+
+```bash
+uv run python -m podcast_auto_editor recipe export \
+  --run runs/episode \
+  --out runs/episode/recipe.v1.json
+
+uv run python -m podcast_auto_editor recipe apply \
+  --recipe runs/episode/recipe.v1.json \
+  --media source-episode.wav \
+  --out runs/episode-replayed
+```
+
+`apply` 會用 recipe 裡的 sha256 驗證來源音檔，不符會直接拒絕。如果你真的要對重新編碼過或被修改過的音檔套用同一份 recipe，加上 `--allow-media-drift` — 新產生的 manifest 會記錄這個覆寫動作。
+
+Recipe 本身不會把音檔內容塞進去，只記路徑、sha256、跟長度。Accepted timeline 是直接內嵌的，所以 recipe 是自給自足的。
+
+## AI 輔助與可解釋性
+
+可用 `ai draft` 由 timeline + transcript 產生「僅供 review」的建議草稿：
+
+```bash
+uv run python -m podcast_auto_editor ai draft \
+  --timeline runs/episode/timeline.proposed.v1.json \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+草稿預設會寫到 timeline 目錄下的 `ai/ai-draft.v1.json`。
+
+`--dry-run` 為 `--dry-prompt` 的別名（同時視為 `--no-net`），適合離線或 CI 安全流程。
+
+可對單筆操作做 AI 解釋：
+
+```bash
+uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.json \
+  --operation-id speech_abc123 \
+  --with-ai \
+  --transcript-json runs/episode/transcript.json \
+  --dry-prompt \
+  --format json
+```
+
+在 `--dry-prompt` 或 `--dry-run` 模式下，不會觸發任何網路 AI 呼叫。
+
+## Docker AI stack E2E 檢查
+
+可用下列 script 跑本機 AI stack 檢查：
+
+```bash
+./scripts/e2e-docker-ai-stack.sh --dry-run
+./scripts/e2e-docker-ai-stack.sh
+```
+
+腳本會啟動 Compose 的 app + ollama（若可用）、執行一次簡易 smoke CLI、最後做清理關停。
+
 ## 專案與批次 dry-run
 
 用 `project init` 建立 `.omx` 之外的本機專案 manifest：
@@ -123,7 +287,7 @@ uv run python -m podcast_auto_editor review serve runs/episode
 uv run python -m podcast_auto_editor review launcher runs/episode --out runs/episode/open-review-ui.sh --desktop-out runs/episode/open-review-ui.desktop
 ```
 
-`review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。
+`review serve` 預設只綁定 `127.0.0.1`，決策會寫入與 CLI 相同的 `review-session.json`。同時提供 Run Dashboard（待決策狀態、下一筆操作、AI draft 連結）。
 `review launcher` 會產生本機啟動檔，啟動同一個 localhost-only review server；這些 launcher 是本機 artifacts，不應提交進版控。
 
 ## Docker Compose 本機 AI stack

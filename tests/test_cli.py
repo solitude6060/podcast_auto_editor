@@ -8,6 +8,242 @@ from podcast_auto_editor.transcript import load_transcript_segments
 from podcast_auto_editor.timeline import create_noop_timeline, write_json
 
 
+def test_review_next_works_when_session_file_missing(tmp_path, capsys):
+    """Regression for PR-A walkthrough: after `run` produces a run directory,
+    `review next` was crashing with FileNotFoundError because no
+    `review-session.json` had been seeded yet. The dashboard's
+    `load_review_context` already tolerates missing-session by returning an
+    empty in-memory session; the CLI must match that semantics so the
+    documented `run -> review next -> review decide` flow works first try."""
+    timeline = create_noop_timeline(
+        {"path": "input.wav", "duration": 2.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_only_op",
+        "type": "silence_cut",
+        "source_range": {"start": 0.5, "end": 1.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    write_json(timeline_path, timeline)
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "next",
+        str(session_path),
+        "--timeline",
+        str(timeline_path),
+        "--format",
+        "json",
+    ])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload is not None
+    assert payload["operation_id"] == "silence_only_op"
+
+
+def test_recipe_export_and_apply_round_trip_via_cli(tmp_path, capsys):
+    """Integration regression for PR-G: `recipe export` then `recipe apply`
+    must reproduce the same accepted timeline byte-for-byte via the CLI."""
+    media = tmp_path / "input.wav"
+    media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt round-trip-fixture")
+    run_dir = tmp_path / "runs" / "ep1"
+    run_dir.mkdir(parents=True)
+
+    timeline = create_noop_timeline(
+        {"path": str(media), "duration": 4.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_aaa",
+        "type": "silence_cut",
+        "source_range": {"start": 1.0, "end": 2.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "accepted",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    write_json(run_dir / "timeline.accepted.v1.json", timeline)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "input": str(media),
+        "episode_id": "ep1",
+        "config": {"quality": {"stereo_loudness_lufs": -16.0}},
+    }))
+
+    recipe_path = tmp_path / "recipe.json"
+    rc_export = cli.main(["recipe", "export", "--run", str(run_dir), "--out", str(recipe_path)])
+    assert rc_export == 0
+    assert recipe_path.exists()
+
+    replay_dir = tmp_path / "runs" / "ep1-replay"
+    rc_apply = cli.main([
+        "recipe", "apply",
+        "--recipe", str(recipe_path),
+        "--media", str(media),
+        "--out", str(replay_dir),
+    ])
+    assert rc_apply == 0
+    original = json.loads((run_dir / "timeline.accepted.v1.json").read_text())
+    replayed = json.loads((replay_dir / "timeline.accepted.v1.json").read_text())
+    assert original == replayed
+
+
+def test_recipe_apply_cli_rejects_hash_mismatch_without_drift_flag(tmp_path, capsys):
+    """CLI must surface RecipeError as a clean non-zero return + stderr."""
+    media = tmp_path / "input.wav"
+    media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt original")
+    run_dir = tmp_path / "runs" / "ep1"
+    run_dir.mkdir(parents=True)
+    timeline = create_noop_timeline(
+        {"path": str(media), "duration": 4.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+    )
+    timeline["operations"].append({
+        "operation_id": "silence_bbb",
+        "type": "silence_cut",
+        "source_range": {"start": 1.0, "end": 2.0},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "accepted",
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "ffmpeg.silencedetect"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    write_json(run_dir / "timeline.accepted.v1.json", timeline)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "input": str(media),
+        "episode_id": "ep1",
+        "config": {},
+    }))
+
+    recipe_path = tmp_path / "recipe.json"
+    assert cli.main(["recipe", "export", "--run", str(run_dir), "--out", str(recipe_path)]) == 0
+
+    other_media = tmp_path / "modified.wav"
+    other_media.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt different-bytes")
+
+    rc = cli.main([
+        "recipe", "apply",
+        "--recipe", str(recipe_path),
+        "--media", str(other_media),
+        "--out", str(tmp_path / "runs" / "fail"),
+    ])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "sha256 mismatch" in err
+
+
+def test_review_decide_works_when_session_file_missing_and_writes_clean_source_timeline(tmp_path, capsys):
+    """Regression for PR #26 triple review: `review decide` against a missing
+    session file must (a) succeed without crash, (b) actually persist the
+    session, and (c) NOT record the session file path as `source_timeline` —
+    that would corrupt the schema vs the dashboard's missing-session shape."""
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "decide",
+        str(session_path),
+        "--operation-id",
+        "silence_op_1",
+        "--decision",
+        "accept",
+        "--reviewer",
+        "producer",
+    ])
+
+    assert rc == 0
+    assert session_path.exists()
+    session = json.loads(session_path.read_text())
+    assert session["schema_version"] == "review-session.v1"
+    assert session["source_timeline"] != str(session_path), (
+        "decide on missing session must not persist the session file path as source_timeline"
+    )
+    assert session["decisions"][0]["operation_id"] == "silence_op_1"
+    assert session["decisions"][0]["decision"] == "accept"
+    assert session["decisions"][0]["reviewer"] == "producer"
+
+
+def test_review_status_works_when_session_file_missing(tmp_path, capsys):
+    """Companion to review-next regression: status against a fresh run dir
+    must produce an empty-decisions summary instead of a traceback."""
+    session_path = tmp_path / "review-session.json"
+    assert not session_path.exists()
+
+    rc = cli.main([
+        "review",
+        "status",
+        str(session_path),
+        "--format",
+        "json",
+    ])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_counts"]["accepted"] == 0
+    assert payload["decision_counts"]["rejected"] == 0
+
+
+def test_ai_draft_rejects_invalid_timeline(tmp_path, capsys):
+    """Regression for review: `ai draft` must call validate_timeline before
+    generate_ai_draft, so malformed `operations` produces a clean CLI error
+    instead of an uncaught AttributeError or a silent zero-candidate draft."""
+    bad_timeline = {
+        "schema_version": "timeline.v1",
+        "media_manifest": {"path": "input.wav", "duration": 1.0},
+        "tracks": [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}],
+        "timebase": {"primary_time_unit": "seconds", "audio_sample_rate": 48000, "pts_origin": 0},
+        "operations": "not a list",
+        "provenance": {"created_by": "test", "contract": "timeline.v1"},
+        "export_metadata": {},
+        "recovery": {"source_to_output": [], "removed_segments": [], "undo": []},
+    }
+    timeline_path = tmp_path / "timeline.proposed.v1.json"
+    timeline_path.write_text(json.dumps(bad_timeline))
+    transcript_path = tmp_path / "transcript.json"
+    transcript_path.write_text(json.dumps([{"start": 0.0, "end": 1.0, "text": "hi"}]))
+    out_path = tmp_path / "ai-draft.v1.json"
+
+    rc = cli.main([
+        "ai",
+        "draft",
+        "--timeline",
+        str(timeline_path),
+        "--transcript-json",
+        str(transcript_path),
+        "--dry-prompt",
+        "--out",
+        str(out_path),
+    ])
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "operations" in err.lower() or "timeline" in err.lower(), err
+    assert not out_path.exists(), "ai draft must not write artifact when timeline is invalid"
+
+
 def test_validate_cli_accepts_valid_timeline(capsys):
     timeline = create_noop_timeline({"path": "input.wav", "duration": 1.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     with tempfile.TemporaryDirectory() as td:
@@ -336,6 +572,7 @@ def test_explain_cli_outputs_json_for_operation(tmp_path, capsys):
     assert payload["operation_id"] == "speech1"
     assert payload["detector"] == "transcript.speech_cleanup_heuristic"
     assert payload["required_review"] == "manual_review_required"
+    assert "ai_explanation" not in payload
 
 
 def test_explain_cli_reports_missing_operation(tmp_path, capsys):
@@ -345,6 +582,176 @@ def test_explain_cli_reports_missing_operation(tmp_path, capsys):
 
     assert main(["explain", str(src), "--operation-id", "missing"]) == 1
     assert "operation missing was not found" in capsys.readouterr().err
+
+
+def test_explain_cli_with_ai_dry_prompt_outputs_ai_fields(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "medium",
+        "confidence": 0.81,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic", "reason": "filler_phrase", "evidence_text": "um"},
+        "preview_ref": "preview/speech1.mp3",
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps([{"start": 0.0, "end": 0.4, "text": "hello"}]))
+
+    assert main([
+        "explain",
+        str(src),
+        "--operation-id",
+        "speech1",
+        "--with-ai",
+        "--dry-prompt",
+        "--transcript-json",
+        str(transcript_json),
+        "--format",
+        "json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation_id"] == "speech1"
+    assert payload["ai_explanation"]["dry_prompt"] is True
+
+
+def test_ai_draft_cli_requires_transcript_json(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "state": "proposed",
+        "risk": "medium",
+        "confidence": 0.81,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic", "reason": "filler_phrase"},
+        "preview_ref": "preview/speech1.mp3",
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+
+    assert main(["ai", "draft", "--timeline", str(src)]) == 1
+    assert "ai draft requires --transcript-json" in capsys.readouterr().err
+
+
+def test_ai_draft_cli_dry_prompt_writes_payload_json_and_file(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "state": "proposed",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "medium",
+        "confidence": 0.8,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline["operations"].append({
+        "operation_id": "retake1",
+        "type": "retake_cut",
+        "state": "proposed",
+        "source_range": {"start": 2.0, "end": 2.8},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "low",
+        "confidence": 0.9,
+        "provenance": {"detector": "retake.heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline["operations"].append({
+        "operation_id": "silence1",
+        "type": "silence_cut",
+        "state": "proposed",
+        "source_range": {"start": 3.0, "end": 3.4},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "deterministic",
+        "confidence": 1.0,
+        "provenance": {"detector": "silence.heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline_path = tmp_path / "timeline.json"
+    write_json(timeline_path, timeline)
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps([{"start": 0.0, "end": 0.4, "text": "hello there"}]))
+
+    assert main([
+        "ai",
+        "draft",
+        "--timeline",
+        str(timeline_path),
+        "--transcript-json",
+        str(transcript_json),
+        "--dry-prompt",
+        "--format",
+        "json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_prompt"] is True
+    assert payload["schema_version"] == "ai-draft.v1"
+    assert payload["metadata"]["candidate_operation_count"] == 2
+    expected_path = timeline_path.parent / "ai" / "ai-draft.v1.json"
+    assert expected_path.exists()
+    assert json.loads(expected_path.read_text()) == payload
+
+
+def test_ai_draft_cli_dry_run_alias_uses_dry_prompt_behavior(tmp_path, capsys):
+    timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
+    timeline["operations"].append({
+        "operation_id": "speech1",
+        "type": "speech_cut",
+        "state": "proposed",
+        "source_range": {"start": 0.5, "end": 0.75},
+        "output_range": None,
+        "affected_tracks": ["audio:0"],
+        "risk": "medium",
+        "confidence": 0.8,
+        "provenance": {"detector": "transcript.speech_cleanup_heuristic"},
+        "preview_ref": None,
+        "diff_ref": None,
+        "recovery_ref": None,
+    })
+    timeline_path = tmp_path / "timeline.json"
+    write_json(timeline_path, timeline)
+    transcript_json = tmp_path / "transcript.json"
+    transcript_json.write_text(json.dumps([{"start": 0.0, "end": 0.4, "text": "hello there"}]))
+
+    assert main([
+        "ai",
+        "draft",
+        "--timeline",
+        str(timeline_path),
+        "--transcript-json",
+        str(transcript_json),
+        "--dry-run",
+        "--format",
+        "json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_prompt"] is True
+    assert payload["metadata"]["candidate_operation_count"] == 1
 
 
 def test_run_cli_passes_export_profile_overrides(tmp_path, monkeypatch, capsys):
