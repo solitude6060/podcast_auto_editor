@@ -18,6 +18,7 @@ from .exports import select_export_profiles
 from .fixtures import make_demo_fixtures
 from .html_report import build_html_report, write_html_report
 from .local_review_server import serve_review_app, validate_review_host, write_review_launcher
+from .media import MediaToolError
 from .pipeline import accept_safe_defaults, add_retake_proposals, analyze, episode_id_from_path, probe, render, retake_operation_is_render_safe, review_accept_operations, run_pipeline, transcribe_and_write, undo_accepted_operations, write_preview
 from .project import build_batch_report, failed_episode, init_project, successful_episode, write_batch_reports
 from .review_session import apply_decision, create_review_session, format_next_review_markdown, format_review_status_markdown, next_review_item, replay_review_session, review_status, write_review_session
@@ -1039,7 +1040,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"quickstart needs ffmpeg/ffprobe on PATH to generate demo media: {exc}", file=sys.stderr)
                 return 1
             audio_path = Path(paths.get("audio", media_dir / "demo-silence.wav"))
-        run_paths_obj = run_pipeline(audio_path, runs_dir, load_config(), episode_id=args.episode_id)
+        config = load_config()
+        try:
+            run_paths_obj = run_pipeline(audio_path, runs_dir, config, episode_id=args.episode_id)
+        except MediaToolError as exc:
+            if not args.real_audio or "quality gate failed" not in str(exc):
+                raise
+            print(
+                f"quickstart real audio warning: {exc}; writing inspection artifacts without publish exports",
+                file=sys.stderr,
+            )
+            run_paths_obj = _execute_dry_run(audio_path, runs_dir, config, episode_id=args.episode_id)
         walkthrough_artifacts = _write_quickstart_walkthrough_artifacts(run_paths_obj.root, audio_path)
         print(f"audio:      {audio_path}")
         print(f"run dir:    {run_paths_obj.root}")

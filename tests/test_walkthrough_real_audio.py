@@ -14,6 +14,36 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _make_spiky_wav(path: Path) -> Path:
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=1000:duration=0.02",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:duration=2",
+            "-filter_complex",
+            "[0:a]volume=0.02[a0];[1:a]volume=1.0[a1];[2:a]volume=0.02[a2];[a0][a1][a2]concat=n=3:v=0:a=1",
+            str(path),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode == 0, result.stderr
+    return path
+
+
 def _assert_walkthrough_artifacts(run_dir: Path) -> None:
     review_session = run_dir / "review-session.json"
     recipe = run_dir / "recipe.v1.json"
@@ -53,6 +83,25 @@ def test_quickstart_real_audio_wav_creates_walkthrough_artifacts(tmp_path):
     assert rc == 0
     assert (out / "raw" / "ep-real.wav").exists()
     _assert_walkthrough_artifacts(out / "runs" / "ep-real")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg/ffprobe required")
+def test_quickstart_real_audio_spiky_wav_completes_walkthrough(tmp_path):
+    audio = _make_spiky_wav(tmp_path / "spiky.wav")
+    out = tmp_path / "walkthrough"
+
+    rc = cli.main([
+        "quickstart",
+        "--real-audio",
+        str(audio),
+        "--out",
+        str(out),
+        "--episode-id",
+        "spiky-real",
+    ])
+
+    assert rc == 0
+    _assert_walkthrough_artifacts(out / "runs" / "spiky-real")
 
 
 def test_quickstart_real_audio_missing_path_returns_clear_audio_error(tmp_path, capsys):
