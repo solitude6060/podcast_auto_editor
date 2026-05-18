@@ -135,29 +135,97 @@ class MockDiarizationProvider(DiarizationProvider):
 
 
 class PyannoteDiarizationProvider(DiarizationProvider):
-    """Lazy-import adapter for the pyannote-audio speaker diarization pipeline.
+    """Lazy-import adapter for the pyannote/speaker-diarization-3.1 pipeline.
 
-    Real model integration is deferred to PR-C2 (requires HuggingFace
-    token + a real recording for accuracy verification). This adapter
-    currently raises a clear ``DiarizationProviderError`` that distinguishes
-    "dependency missing" from "integration deferred" so users know how to
-    proceed.
+    The pipeline is constructed once per provider instance on the first
+    ``diarize()`` call and reused for subsequent calls. ``pyannote.audio``
+    and ``torch`` are imported lazily inside ``_load_pipeline()`` so a core
+    install of ``podcast_auto_editor`` never pays the heavy ML import cost.
+
+    Authentication uses ``HF_TOKEN`` from the environment only; the project
+    code never prompts, persists, prints, or serialises the token value.
+    Pyannote's own ``~/.huggingface/token`` lookup is also honoured because
+    ``Pipeline.from_pretrained`` reads it internally when ``use_auth_token``
+    is ``None``.
     """
 
-    def diarize(self, audio_path: str | Path, **options: Any) -> list[dict[str, Any]]:  # noqa: ARG002
+    _MODEL_ID = "pyannote/speaker-diarization-3.1"
+    _LICENSE_URL = "https://huggingface.co/pyannote/speaker-diarization-3.1"
+
+    def __init__(self) -> None:
+        self._pipeline: Any = None
+
+    def _load_pipeline(self) -> Any:
+        """Lazily construct and cache the pyannote pipeline.
+
+        Raises ``DiarizationProviderError`` for missing dependency, missing /
+        invalid token, and unaccepted model license.
+        """
+        if self._pipeline is not None:
+            return self._pipeline
+
+        import os
+
         try:
-            import pyannote.audio  # noqa: F401
+            import pyannote.audio as _pyannote_audio
         except ImportError as exc:
             raise DiarizationProviderError(
-                "pyannote-audio is not installed; run `uv add pyannote-audio` and set "
-                "HF_TOKEN to enable real diarization. Use `--provider mock` to ship without "
-                "the heavy dependency."
+                "pyannote.audio is not installed. "
+                "Install the optional dependency group with: "
+                "uv sync --extra diarize-pyannote  "
+                "(or: pip install 'podcast-auto-editor[diarize-pyannote]'). "
+                "Then set HF_TOKEN and accept the model license at "
+                f"{self._LICENSE_URL}"
             ) from exc
-        raise DiarizationProviderError(
-            "pyannote real-model integration is deferred to follow-up PR-C2; use `--provider mock` "
-            "for now. PR-C2 will wire the pyannote/speaker-diarization-3.1 pipeline once a real "
-            "2-speaker fixture is available for accuracy verification."
-        )
+
+        token = os.environ.get("HF_TOKEN") or None  # None triggers pyannote's own lookup
+
+        try:
+            pipeline = _pyannote_audio.Pipeline.from_pretrained(
+                self._MODEL_ID,
+                use_auth_token=token,
+            )
+        except Exception as exc:
+            # from None: prevent chained traceback from leaking HF_TOKEN if
+            # pyannote or huggingface_hub embeds it in the underlying exception text.
+            raise DiarizationProviderError(
+                f"Failed to load {self._MODEL_ID}. "
+                "Either the model license has not been accepted OR HF_TOKEN is "
+                "missing / invalid. "
+                f"Accept the license and set HF_TOKEN, then re-run. "
+                f"See {self._LICENSE_URL} for setup instructions. "
+                f"Original error type: {type(exc).__name__}"
+            ) from None
+
+        # Optional: move to GPU when available (CPU default for local-first use)
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                pipeline.to(torch.device("cuda"))
+        except ImportError:
+            pass  # torch not installed with CUDA; stay on CPU
+
+        self._pipeline = pipeline
+        return self._pipeline
+
+    def diarize(self, audio_path: str | Path, **options: Any) -> list[dict[str, Any]]:  # noqa: ARG002
+        pipeline = self._load_pipeline()
+
+        annotation = pipeline(str(audio_path))
+
+        raw: list[dict[str, Any]] = []
+        for turn, _track, label in annotation.itertracks(yield_label=True):
+            raw.append(
+                {
+                    "start": float(turn.start),
+                    "end": float(turn.end),
+                    "speaker_id": str(label),
+                    "confidence": 0.0,
+                }
+            )
+
+        return normalize_speaker_segments(raw)
 
 
 def diarize_to_file(
