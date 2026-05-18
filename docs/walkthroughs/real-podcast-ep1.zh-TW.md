@@ -8,8 +8,7 @@ English version: `docs/walkthroughs/real-podcast-ep1.md`
 目的是確認 pipeline 能夠讀取真實錄音，並產生 review-session、recipe、AI 草稿等成品，
 不需要把私人媒體檔案提交進 repo。
 
-真實 ASR（X2.1 — 已上線）、alignment（X3.1 — 已上線）、diarization（C2 — 已上線）
-的操作說明見下方各節；若不個別啟用，預設仍使用 stub 模式。
+真實中文 ASR（X2.1 — 已上線）的操作說明見下方各節。對齊（X3.1— WhisperX）與語者分離（C2 — pyannote）有各自的 runbook：`docs/runbooks/whisperx-alignment-setup.md`、`docs/runbooks/pyannote-setup.md`。預設仍使用 stub 模式，需個別啟用才會跑真實 provider。
 
 ## 輸入
 
@@ -106,3 +105,4 @@ PAE_BELLE_REAL=1 PAE_BELLE_REAL_AUDIO=/path/to/zh_sample.wav \
 - 以相同 `--out` 重新執行 `scripts/walkthrough-real-podcast.sh` 時，該輸出目錄會先被刪除再重建。
 - 此 walkthrough 預設使用 stub 逐字稿提供者與乾跑 AI 草稿模式。
 - 出現發布品質關卡警告代表 PR-A2 的檢查成品已產生，但主控和匯出的就緒狀態仍需另行跟進。
+- PR-X2.1 的 env-gated 測試（`PAE_BELLE_REAL=1`）僅驗證 Belle 模型可以載入並產出非空 transcript，並未驗證中文解碼品質；中文品質需要操作者對照原始錄音進行人工檢查。

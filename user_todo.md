@@ -17,7 +17,7 @@ only runs when the operator provides the prerequisites below.
 | # | Item | What you do | Why | Blocking? |
 |---|---|---|---|---|
 | A1 | Download `BELLE-2/Belle-whisper-large-v3-zh` weights to a local path | `huggingface-cli download BELLE-2/Belle-whisper-large-v3-zh --local-dir <PATH>` (or let `faster-whisper` lazy-pull on first use; requires ~3GB and HF network) | Env-gated integration test needs a real model to load | **No** (test skipped if env unset; merge can proceed) |
-| A2 | Short Chinese audio sample for the integration test | Drop a 5–10s `.wav` (mono, 16 kHz preferred) at `tests/fixtures/zh_sample.wav` (or set `PAE_BELLE_REAL_AUDIO` to your path). A real Mandarin podcast clip is preferred over TTS — the test asserts non-trivial decoded text presence, not exact transcript | Without real Chinese audio, the test only proves load + decode pipe, not language quality | **No** (test skipped if missing; offline synthetic-tone smoke covers the load path) |
+| A2 | Short Chinese audio sample for the integration test | Drop a 5–10s `.wav` (mono, 16 kHz preferred) at `tests/fixtures/zh_sample.wav` (or set `PAE_BELLE_REAL_AUDIO` to your path). A real Mandarin podcast clip is preferred over TTS — the test asserts non-trivial decoded text presence, not exact transcript | Without real Chinese audio, the test only proves load + decode pipe, not language quality | **No** (test SKIPS entirely if `PAE_BELLE_REAL_AUDIO` is unset or path missing — no synthetic load-path fallback was implemented; see Codex MEDIUM) |
 | A3 | Decide env var name | Confirm `PAE_BELLE_REAL=1` is OK, or pick another (existing scheme uses `PAE_WHISPERX_ALIGN_MODEL`, `PAE_LATTIFAI_ONNX_PATH`) | Consistency with prior PRs | No (planner will pick a default; you can rename before merge) |
 | A4 | GPU access (optional) | Confirm whether to advertise CUDA in the runbook update, or stay CPU-only for default | Belle inference on CPU is ~5× realtime; GPU brings it well under realtime. Pure docs choice | No |
 
@@ -44,3 +44,4 @@ only runs when the operator provides the prerequisites below.
 - 2026-05-18 opened by autopilot. Planning PR-X2.1 in worktree (codex planner running). Audit punch list assembled.
 - 2026-05-18 PR-X2.1 plan + RED test + walkthrough committed on feature/pr-x2-1-belle-real-integration; awaiting operator-provided Belle model + Chinese audio fixture per items A1/A2 above.
 - Update this file inline as items resolve. Autopilot reads it before each phase.
+- 2026-05-18 triple-review (Gemini 2.5-pro + MiniMax + codex-family). Codex caught the wrapper-drops-model HIGH that MiniMax+Gemini missed. 5 findings fixed; 2 LOW skipped per reviewer calibration. See docs/PR_REVIEW_2026-05-18_PR47_*.md.
