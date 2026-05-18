@@ -1,4 +1,6 @@
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -214,3 +216,93 @@ def test_align_to_file_rejects_unknown_provider_after_lattifai_added(tmp_path):
         assert "lattifai" in str(exc)
     else:
         raise AssertionError("expected AlignmentError for unknown provider")
+
+
+
+def _install_fake_whisperx_stack(monkeypatch, result, calls):
+    loaded_audio = object()
+
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(
+            is_available=lambda: False,
+            empty_cache=lambda: calls.setdefault("empty_cache", True),
+        )
+    )
+
+    def load_audio(path):
+        calls["load_audio_path"] = path
+        return loaded_audio
+
+    def load_align_model(**kwargs):
+        calls["load_align_model_kwargs"] = kwargs
+        return object(), {"language": "zh", "dictionary": {}, "type": "huggingface"}
+
+    def align(*args, **kwargs):
+        calls["align_args"] = args
+        calls["align_kwargs"] = kwargs
+        return result
+
+    fake_whisperx = types.SimpleNamespace(
+        load_audio=load_audio,
+        load_align_model=load_align_model,
+        align=align,
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "whisperx", fake_whisperx)
+    return loaded_audio
+
+
+def test_whisperx_uses_loaded_audio_and_local_only_model_cache(tmp_path, monkeypatch):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    calls = {}
+    loaded_audio = _install_fake_whisperx_stack(
+        monkeypatch,
+        {"segments": [{"words": [{"start": 0.0, "end": 0.1, "word": "你"}]}]},
+        calls,
+    )
+
+    words = WhisperXAlignmentProvider().align(
+        Path("audio.wav"),
+        [{"start": 0.0, "end": 1.0, "text": "你"}],
+        model_path=model_dir,
+    )
+
+    assert calls.get("load_audio_path") == "audio.wav"
+    assert calls["align_args"][3] is loaded_audio
+    assert calls["load_align_model_kwargs"].get("model_cache_only") is True
+    assert words == [{"start": 0.0, "end": 0.1, "text": "你"}]
+
+
+def test_whisperx_flattens_word_segments_text_and_filters_empty_words(tmp_path, monkeypatch):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    calls = {}
+    _install_fake_whisperx_stack(
+        monkeypatch,
+        {
+            "segments": [],
+            "word_segments": [
+                {"start": 0.0, "end": 0.0, "text": " 零 "},
+                {"start": 0.0, "end": 0.2, "word": "重"},
+                {"start": 0.1, "end": 0.3, "text": "疊"},
+                {"start": 0.3, "end": 0.4, "word": "   "},
+            ],
+        },
+        calls,
+    )
+
+    words = WhisperXAlignmentProvider().align(
+        "audio.wav",
+        [{"start": 0.0, "end": 1.0, "text": "零重疊"}],
+        model_path=model_dir,
+    )
+
+    assert words == [
+        {"start": 0.0, "end": 0.0, "text": "零"},
+        {"start": 0.0, "end": 0.2, "text": "重"},
+        {"start": 0.1, "end": 0.3, "text": "疊"},
+    ]
+    assert all(set(word) == {"start", "end", "text"} for word in words)
