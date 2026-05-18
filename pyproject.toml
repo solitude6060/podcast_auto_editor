@@ -13,6 +13,30 @@ dependencies = []
 podcast-auto-editor = "podcast_auto_editor.cli:main"
 
 [project.optional-dependencies]
+# CPU-only ONNX Runtime for Lattifai Lattice-1 air-gapped alignment (PEP 621 extra).
+# Install with: pip install .[align-lattifai]  or  uv sync --extra align-lattifai
+# CUDA users: also install onnxruntime-gpu (uninstall onnxruntime first).
+# CoreML users (Apple Silicon): also install onnxruntime-silicon.
+# These hardware-specific variants are NOT listed here because they are
+# platform-gated and conflict with the CPU package on some platforms.
+# Bound: >=1.0 — no specific 1.x feature is required; relaxed from >=1.18
+# (no concrete minimum verified against Lattice-1 ONNX opset requirements).
+align-lattifai = [
+    "onnxruntime>=1.0",
+]
+
+# Install with: uv sync --extra diarize-pyannote
+# or: pip install 'podcast-auto-editor[diarize-pyannote]'
+# Requires an HF_TOKEN with accepted license at:
+#   https://huggingface.co/pyannote/speaker-diarization-3.1
+# CPU wheels are used by default; the pipeline auto-moves to CUDA when
+# torch.cuda.is_available() is true at runtime. To use CUDA wheels,
+# install torch separately per https://pytorch.org/get-started/locally/
+diarize-pyannote = [
+    "pyannote.audio>=3.1,<4",
+    "torch>=2.0",
+]
+
 align-whisperx = [
     "whisperx>=3.1,<4",
     "torch>=2.0",

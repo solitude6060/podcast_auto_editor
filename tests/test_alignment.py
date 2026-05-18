@@ -180,14 +180,17 @@ def test_whisperx_via_align_to_file_surfaces_error_without_writing(tmp_path):
     assert not out.exists()
 
 
-def test_lattifai_provider_raises_clear_error_when_called(tmp_path):
-    """PR-X4: Lattifai adapter raises a clear AlignmentProviderError until
-    PR-X4.1 wires real integration."""
+def test_lattifai_provider_raises_clear_error_when_called(tmp_path, monkeypatch):
+    """PR-X4.1: Lattifai adapter raises a clear AlignmentProviderError when
+    no model_path is provided and PAE_LATTIFAI_ONNX_PATH is unset."""
+    monkeypatch.delenv("PAE_LATTIFAI_ONNX_PATH", raising=False)
     provider = LattifaiAlignmentProvider()
     with pytest.raises(AlignmentProviderError) as exc_info:
         provider.align("audio.wav", [{"start": 0.0, "end": 1.0, "text": "x"}])
-    msg = str(exc_info.value).lower()
-    assert "lattifai" in msg or "deferred" in msg
+    msg = str(exc_info.value)
+    # PR-X4.1: message must mention both configuration options (no longer says "deferred")
+    assert "model_path" in msg
+    assert "PAE_LATTIFAI_ONNX_PATH" in msg
     # Triple-review MEDIUM (MiniMax F9): class-level assertion
     assert isinstance(exc_info.value, AlignmentProviderError)
     assert not isinstance(exc_info.value, ImportError)
