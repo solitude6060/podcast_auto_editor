@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -211,26 +212,52 @@ class WhisperXAlignmentProvider(AlignmentProvider):
 
     def align(
         self,
-        audio_path: str | Path,  # noqa: ARG002
-        transcript_segments: list[dict[str, Any]],  # noqa: ARG002
-        **options: Any,  # noqa: ARG002
+        audio_path: str | Path,
+        transcript_segments: list[dict[str, Any]],
+        **options: Any,
     ) -> list[dict[str, Any]]:
-        try:
-            import whisperx  # noqa: F401
-        except ImportError as exc:
+        model_path_option = options.get("model_path") or os.environ.get("PAE_WHISPERX_ALIGN_MODEL")
+        if not transcript_segments:
+            return []
+        if not model_path_option:
             raise AlignmentProviderError(
-                "whisperx is not installed; run `uv add whisperx` to enable real "
-                "forced alignment. The community Chinese phoneme model "
-                "`jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn` is the "
-                "recommended weights for Chinese podcasts. Use `--provider mock` "
-                "to ship without the heavy dependency."
-            ) from exc
-        raise AlignmentProviderError(
-            "whisperx real-model integration is deferred to follow-up PR-X3.1; "
-            "use `--provider mock` for now. PR-X3.1 will wire the Chinese phoneme "
-            "model load + alignment call once a real recording is available for "
-            "accuracy verification."
-        )
+                "model_path is required; pass model_path=... or set PAE_WHISPERX_ALIGN_MODEL"
+            )
+        model_path = Path(model_path_option)
+        if not model_path.exists():
+            raise AlignmentProviderError(f"model path does not exist: {model_path}")
+        if not model_path.is_dir():
+            raise AlignmentProviderError(f"model path is not a directory: {model_path}")
+        if not (model_path / "config.json").exists():
+            raise AlignmentProviderError(f"model missing required file config.json: {model_path}")
+        try:
+            import torch
+            import whisperx
+        except ImportError as exc:
+            raise AlignmentProviderError(f"whisperx is not installed: {exc}") from exc
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        try:
+            model, metadata = whisperx.load_align_model(
+                language_code="zh",
+                model_name=str(model_path),
+                device=device,
+            )
+            result = whisperx.align(transcript_segments, model, metadata, audio_path, device)
+        except Exception as exc:
+            raise AlignmentProviderError(f"whisperx alignment failed: {exc}") from exc
+        words: list[dict[str, Any]] = []
+        for segment in result["segments"]:
+            for word in segment.get("words", []):
+                if word.get("start") is None or word.get("end") is None:
+                    continue
+                words.append(
+                    {
+                        "start": word["start"],
+                        "end": word["end"],
+                        "text": word["word"],
+                    }
+                )
+        return normalize_word_alignments(words)
 
 
 def align_to_file(

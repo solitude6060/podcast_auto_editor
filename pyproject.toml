@@ -12,6 +12,12 @@ dependencies = []
 [project.scripts]
 podcast-auto-editor = "podcast_auto_editor.cli:main"
 
+[project.optional-dependencies]
+align-whisperx = [
+    "whisperx>=3.1,<4",
+    "torch>=2.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
