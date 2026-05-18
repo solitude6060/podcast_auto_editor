@@ -160,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_align = sub.add_parser("align", help="Generate word_alignments.v1 from audio + transcript via an alignment provider")
     p_align.add_argument("input", help="Source audio path")
     p_align.add_argument("--transcript-json", required=True, help="transcript.v1 JSON to align")
-    p_align.add_argument("--provider", default="mock", choices=("mock", "whisperx", "lattifai"), help="Alignment provider (mock ships offline; whisperx integration deferred to PR-X3.1; lattifai integration deferred to PR-X4.1)")
+    p_align.add_argument("--provider", default="mock", choices=("mock", "whisperx", "lattifai"), help="Alignment provider (mock ships offline; whisperx requires optional 'align-whisperx' dep group and a local phoneme model directory; see docs/runbooks/whisperx-alignment-setup.md; lattifai integration deferred to PR-X4.1)")
     p_align.add_argument("--out", required=True, help="Output path for word_alignments.v1.json")
     p_align.add_argument("--config", help="Path to provider config JSON (mock provider: list of words to return)")
 

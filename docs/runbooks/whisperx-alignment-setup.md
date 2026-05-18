@@ -30,17 +30,36 @@ Apache 2.0 confirmed for `jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn`: 
 
 ## CPU Latency
 
-Not measured in sandbox env. Typical wav2vec2-large models process ~10x realtime on CPU. For a 60-min podcast expect ~6 min on CPU, ~30 sec on GPU. Measure with:
+Use a local Chinese WAV fixture. If `fixtures/audio/short_30s_zh.wav` is not present in your checkout, create a 30-second Chinese sample or replace the path with your own local audio.
 
 ```bash
-time uv run python -c "..."
+PAE_WHISPERX_ALIGN_MODEL=$HOME/.cache/podcast-auto-editor/models/wav2vec2-chinese \
+UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor \
+uv run --extra align-whisperx python -c "
+import time
+from podcast_auto_editor.alignment import align_to_file
+segs = [{'start': 0.0, 'end': 30.0, 'text': '你好，這是一個測試。'}]
+t0 = time.time()
+align_to_file('fixtures/audio/short_30s_zh.wav', segs, '/tmp/x3-1-bench.json', provider='whisperx')
+print(f'duration: {time.time()-t0:.2f}s')
+"
 ```
-
-on a 30-sec sample.
 
 ## Network Isolation
 
-Not verified in sandbox env. Verification procedure: rename `~/.cache/huggingface` aside, set `PAE_WHISPERX_ALIGN_MODEL`, run smoke. If it completes without downloading, model is fully offline.
+This check disables the default Hugging Face cache and exercises a non-empty alignment. Restore the cache after the command.
+
+```bash
+mv ~/.cache/huggingface ~/.cache/huggingface.bak
+PAE_WHISPERX_ALIGN_MODEL=$HOME/.cache/podcast-auto-editor/models/wav2vec2-chinese \
+uv run --extra align-whisperx python -c "
+from podcast_auto_editor.alignment import align_to_file
+segs = [{'start': 0.0, 'end': 30.0, 'text': '你好。'}]
+align_to_file('fixtures/audio/short_30s_zh.wav', segs, '/tmp/x3-1-airgap.json', provider='whisperx')
+print('PASS: alignment succeeded with HF cache disabled')
+"
+# Restore: mv ~/.cache/huggingface.bak ~/.cache/huggingface
+```
 
 ## Alternative Models
 

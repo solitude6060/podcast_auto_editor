@@ -288,10 +288,8 @@ class LattifaiAlignmentProvider(AlignmentProvider):
 class WhisperXAlignmentProvider(AlignmentProvider):
     """Lazy-import adapter for WhisperX forced alignment.
 
-    Real model integration is deferred to PR-X3.1 (requires WhisperX
-    install + a Chinese wav2vec2 phoneme model). This adapter raises a
-    clear ``AlignmentProviderError`` distinguishing "dependency missing"
-    from "integration deferred" so users know how to proceed.
+    WhisperX requires optional 'align-whisperx' dep group and a local
+    phoneme model directory; see docs/runbooks/whisperx-alignment-setup.md.
     """
 
     def align(
@@ -300,7 +298,7 @@ class WhisperXAlignmentProvider(AlignmentProvider):
         transcript_segments: list[dict[str, Any]],
         **options: Any,
     ) -> list[dict[str, Any]]:
-        model_path_option = options.get("model_path") or os.environ.get("PAE_WHISPERX_ALIGN_MODEL")
+        model_path_option = options.get("model_path") if "model_path" in options else os.environ.get("PAE_WHISPERX_ALIGN_MODEL")
         if not transcript_segments:
             return []
         if not model_path_option:
@@ -319,28 +317,51 @@ class WhisperXAlignmentProvider(AlignmentProvider):
             import whisperx
         except ImportError as exc:
             raise AlignmentProviderError(f"whisperx is not installed: {exc}") from exc
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = options.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
+        model: Any | None = None
         try:
             model, metadata = whisperx.load_align_model(
                 language_code="zh",
                 model_name=str(model_path),
                 device=device,
+                model_cache_only=True,
             )
-            result = whisperx.align(transcript_segments, model, metadata, audio_path, device)
+            audio = whisperx.load_audio(str(audio_path))
+            result = whisperx.align(
+                transcript_segments,
+                model,
+                metadata,
+                audio,
+                device,
+                interpolate_method="nearest",
+            )
         except Exception as exc:
             raise AlignmentProviderError(f"whisperx alignment failed: {exc}") from exc
+        finally:
+            if model is not None:
+                del model
+            if device == "cuda":
+                torch.cuda.empty_cache()
+
+        words_raw: list[dict[str, Any]] = []
+        for segment in result.get("segments", []):
+            words_raw.extend(segment.get("words", []))
+        if not words_raw:
+            words_raw = result.get("word_segments", [])
+
         words: list[dict[str, Any]] = []
-        for segment in result["segments"]:
-            for word in segment.get("words", []):
-                if word.get("start") is None or word.get("end") is None:
-                    continue
-                words.append(
-                    {
-                        "start": word["start"],
-                        "end": word["end"],
-                        "text": word["word"],
-                    }
-                )
+        for item in words_raw:
+            if item.get("start") is None or item.get("end") is None:
+                continue
+            text = item.get("word") or item.get("text")
+            if text is None:
+                continue
+            text = str(text).strip()
+            if not text:
+                continue
+            # Preserve zero-duration and overlapping words: WhisperX can emit
+            # these around CJK boundaries, and word_alignments.v1 allows them.
+            words.append({"start": item["start"], "end": item["end"], "text": text})
         return normalize_word_alignments(words)
 
 
