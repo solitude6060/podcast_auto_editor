@@ -1,12 +1,12 @@
 # Real Podcast Walkthrough: EP1
 
-繁體中文說明見本文件下方「繁體中文」段落。
+繁體中文說明見本文件下方「繁體中文」段落，或 `docs/walkthroughs/real-podcast-ep1.zh-TW.md`。
 
 ## Goal
 
 Run the Stage 1 PR-A2 walkthrough against a real recorded WAV while keeping the same offline/mock defaults as `quickstart`. This proves the pipeline can ingest real audio and produce the review-session, recipe, and AI-draft artifacts without committing private media.
 
-Real ASR, alignment, and diarization provider execution is deferred to X2.1, X3.1, and X4.1.
+Real Chinese ASR (X2.1 — shipped) is documented in the section below. Real alignment (X3.1 — WhisperX) and diarization (C2 — pyannote) shipped separately; see their dedicated runbooks at `docs/runbooks/whisperx-alignment-setup.md` and `docs/runbooks/pyannote-setup.md`. The stub defaults still apply unless you opt in per-provider.
 
 ## Input
 
@@ -114,17 +114,52 @@ Default dashboard URL:
 http://127.0.0.1:8765
 ```
 
+## Chinese ASR via Belle (PR-X2.1)
+
+Run real Chinese ASR against a Mandarin podcast episode using the
+`Belle-whisper-large-v3-zh` model through the existing `faster-whisper-local`
+provider (no public API change required):
+
+```bash
+podcast-auto-editor transcribe path/to/zh-episode.wav \
+  --provider faster-whisper-local \
+  --model BELLE-2/Belle-whisper-large-v3-zh \
+  --device cuda \
+  --compute-type float16 \
+  --out runs/ep/transcript.json
+```
+
+Notes:
+- Model license is Apache-2.0; no HuggingFace authentication token required.
+- CPU fallback (`--device cpu --compute-type int8`) works but is roughly 5×
+  slower than realtime; a CUDA GPU is strongly recommended for the large-v3
+  weights (~3 GB).
+
+### Verification
+
+Run the env-gated integration test (skipped in default CI by design):
+
+```bash
+PAE_BELLE_REAL=1 PAE_BELLE_REAL_AUDIO=/path/to/zh_sample.wav \
+    uv run --group dev pytest tests/test_asr_belle_real.py -v
+```
+
+The test requires `faster-whisper` installed and the Belle model downloaded or
+available in the HuggingFace cache. Without `PAE_BELLE_REAL=1`, the gated test
+is automatically skipped and the normal suite remains unaffected.
+
 ## Notes
 
 - `--real-audio` validates that the input exists, is a regular file, and has a `.wav` suffix.
 - The input WAV is hardlinked or copied into `runs/walkthrough/raw/ep1-real.wav`; the original `/media/` file is never modified.
 - Re-running `scripts/walkthrough-real-podcast.sh` with the same `--out` removes and recreates that output directory.
-- The walkthrough intentionally uses the stub transcript provider and dry AI draft mode.
+- The walkthrough intentionally uses the stub transcript provider and dry AI draft mode by default; opt-in real providers are documented in the "Chinese ASR via Belle (PR-X2.1)" section above.
+- The PR-X2.1 gated test (`PAE_BELLE_REAL=1`) verifies that the Belle model loads and produces non-empty transcript output. It does NOT validate Chinese decoding quality — that requires human review of the produced transcript against the operator's audio sample.
 - A publish quality-gate warning means PR-A2 inspection artifacts were produced, but mastering/export readiness still needs separate follow-up.
 
 ## 繁體中文
 
-這個 walkthrough 是 PR-A2 的真實錄音煙霧測試：用本機 WAV 取代 synthetic fixture，但仍維持離線/mock 預設，不啟用真實 ASR、alignment、diarization 或 hosted AI。
+這個 walkthrough 是 PR-A2 的真實錄音煙霧測試：用本機 WAV 取代 synthetic fixture，預設仍維持離線/mock pipeline，不自動啟用真實 ASR、alignment、diarization 或 hosted AI；個別 provider 已透過 X2.1（中文 ASR）、X3.1（對齊）、C2（語者分離）開放選用，詳見英文「Chinese ASR via Belle (PR-X2.1)」段落。
 
 執行：
 
@@ -147,4 +182,4 @@ runs/walkthrough/runs/ep1-real/ai/ai-draft.v1.json
 uv run python -m podcast_auto_editor review serve runs/walkthrough/runs/ep1-real
 ```
 
-預設網址是 `http://127.0.0.1:8765`。真實 ASR、alignment、diarization 驗證分別延後到 X2.1、X3.1、X4.1。
+預設網址是 `http://127.0.0.1:8765`。
