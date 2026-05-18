@@ -182,6 +182,25 @@ def test_faster_whisper_provider_accepts_belle_whisper_zh_drop_in(tmp_path, monk
     assert captured["model"] == "BELLE-2/Belle-whisper-large-v3-zh"
 
 
+def test_transcribe_wrapper_returns_only_canonical_fields(tmp_path, monkeypatch):
+    """PR #47 review HIGH (Codex): asr.transcribe() wraps provider output and
+    rebuilds the payload with ONLY {schema_version, provider, source_media,
+    segments}. Provider-specific metadata such as `model`, `device`, and
+    `compute_type` is intentionally dropped. This pins the wrapper contract so
+    callers (and tests) do not assume provider-supplied fields survive.
+
+    If a future change wants to preserve provider metadata in transcript.v1
+    artifacts, that change is a separate PR with its own plan + schema bump.
+    """
+    # Use the stub provider; assert wrapper output keys
+    from podcast_auto_editor import asr
+
+    payload = asr.transcribe(tmp_path / "x.wav", provider_name="stub")
+    assert set(payload.keys()) == {"schema_version", "provider", "source_media", "segments"}
+    assert payload["schema_version"] == "transcript.v1"
+    assert payload["provider"] == "stub"
+
+
 def test_transcribe_cli_passes_faster_whisper_options(tmp_path, monkeypatch):
     captured = {}
 
