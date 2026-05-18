@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -155,48 +156,132 @@ class MockAlignmentProvider(AlignmentProvider):
 
 
 class LattifaiAlignmentProvider(AlignmentProvider):
-    """Lazy-import adapter for Lattifai Lattice-1 forced alignment.
+    """Air-gapped ONNX adapter for LattifAI/Lattice-1 forced alignment.
 
-    Per `docs/research/2026-05-17-chinese-asr-models.md`:
-    - Lattice-1 model itself is Apache-2.0, ONNX, runs entirely on the
-      local machine (onnxruntime + CUDA/MPS/CoreML providers).
-    - Audio never leaves the box during alignment.
-    - **But** the official `lattifai-python` SDK by default constructs a
-      `SyncAPIClient` that phones home for quota / usage tracking even
-      though the model is local. For strict "nothing leaves my box"
-      operation, callers must either accept the telemetry caveat
-      (auth via `lai auth trial` for free 120-min credit) or bypass the
-      SDK and load https://huggingface.co/LattifAI/Lattice-1 directly
-      via onnxruntime (unofficial; tokenizer/decoder hookup is the
-      caller's responsibility — out of scope for PR-X4).
+    Implementation notes (PR-X4.1, 2026-05-18):
+    -----------------------------------------------
+    Model: https://huggingface.co/LattifAI/Lattice-1
+    License: Apache-2.0
+    Format: ONNX (acoustic_opt.onnx, ~129 MB)
 
-    Real model integration is deferred to PR-X4.1.
+    Verified ONNX interface (from lattifai-python source inspection):
+      config.json: {"sample_rate": 16000, "frame_shift": 0.01, "subsampling_factor": 2}
+      Input tensor : name="audios", dtype=float32, shape=(1, T) — raw PCM at 16 kHz
+      Output tensor: dtype=float32, shape=(1, T_sub, vocab_size) — emission log-probs
+                     where T_sub = T / subsampling_factor
+
+    Decode blocker (documented 2026-05-18, see plan §2 follow-up):
+      The upstream SDK (lattifai-python) decodes via k2py (k2 FST/lattice library).
+      k2 has no PyPI wheel for Python >=3.11 (project requires 3.11+), so it cannot
+      be listed as a dependency. Additionally, lattifai-python's tokenizer.tokenize()
+      makes a POST to a backend service for pronunciation lookup + lattice construction
+      — this violates the air-gap constraint.
+
+      Until a local-only k2-free decode path is identified or contributed upstream,
+      the ONNX inference body raises AlignmentProviderError with a clear blocker
+      message rather than guessing at the algorithm (plan §2: "Do NOT guess at the
+      algorithm — wrong decoder = wrong alignments = silent data corruption downstream").
+
+    Setup: pre-download the model and set PAE_LATTIFAI_ONNX_PATH (see
+      docs/runbooks/lattifai-onnx-setup.md) or pass model_path= to align().
     """
 
     def align(
         self,
-        audio_path: str | Path,  # noqa: ARG002
-        transcript_segments: list[dict[str, Any]],  # noqa: ARG002
-        **options: Any,  # noqa: ARG002
+        audio_path: str | Path,
+        transcript_segments: list[dict[str, Any]],
+        **options: Any,
     ) -> list[dict[str, Any]]:
-        try:
-            import lattifai  # noqa: F401
-        except ImportError as exc:
+        # ------------------------------------------------------------------
+        # 1. Resolve model directory: explicit kwarg > env var
+        # ------------------------------------------------------------------
+        model_path: str | None = options.get("model_path") or os.environ.get(
+            "PAE_LATTIFAI_ONNX_PATH"
+        )
+        if not model_path:
             raise AlignmentProviderError(
-                "lattifai is not installed; run `uv add lattifai` to enable Lattifai "
-                "Lattice-1 alignment. Note: the official SDK initialises an API client "
-                "that may require authentication / usage tracking even though the ONNX "
-                "model itself runs locally. Use `--provider whisperx` for a fully "
-                "air-gapped path, or load LattifAI/Lattice-1 ONNX directly via "
-                "onnxruntime if you need to bypass the SDK. See "
-                "docs/research/2026-05-17-chinese-asr-models.md §2.2 for the "
-                "telemetry-vs-air-gap trade-off."
+                "LattifaiAlignmentProvider requires a Lattice-1 model directory. "
+                "Provide it via the model_path= keyword argument or by setting the "
+                "PAE_LATTIFAI_ONNX_PATH environment variable to the path of the "
+                "pre-downloaded LattifAI/Lattice-1 directory. "
+                "See docs/runbooks/lattifai-onnx-setup.md for setup instructions."
+            )
+
+        # ------------------------------------------------------------------
+        # 2. Validate model directory and required ONNX file exist
+        # ------------------------------------------------------------------
+        model_dir = Path(model_path)
+        if not model_dir.exists():
+            raise AlignmentProviderError(
+                f"LattifaiAlignmentProvider: model directory does not exist: {model_dir}. "
+                f"Set model_path= or PAE_LATTIFAI_ONNX_PATH to point at the directory "
+                f"containing acoustic_opt.onnx. "
+                f"See docs/runbooks/lattifai-onnx-setup.md."
+            )
+        if not model_dir.is_dir():
+            raise AlignmentProviderError(
+                f"LattifaiAlignmentProvider: model_path must be a directory, not a file: {model_dir}."
+            )
+        acoustic_file = model_dir / "acoustic_opt.onnx"
+        if not acoustic_file.is_file():
+            raise AlignmentProviderError(
+                f"LattifaiAlignmentProvider: expected file acoustic_opt.onnx not found under "
+                f"{model_dir}. Run the manual download per docs/runbooks/lattifai-onnx-setup.md."
+            )
+
+        # ------------------------------------------------------------------
+        # 3. Early-return for empty transcript (no ONNX or decode work needed)
+        # ------------------------------------------------------------------
+        if not transcript_segments:
+            return []
+
+        # ------------------------------------------------------------------
+        # 4. Lazy-import onnxruntime (optional dep group: align-lattifai)
+        # ------------------------------------------------------------------
+        try:
+            import onnxruntime as ort  # noqa: F401
+        except (ImportError, TypeError) as exc:
+            raise AlignmentProviderError(
+                "onnxruntime is not installed. Install the align-lattifai optional "
+                "dependency group: uv sync --extra align-lattifai  "
+                "(or: pip install .[align-lattifai]). "
+                "For GPU inference install onnxruntime-gpu instead."
             ) from exc
+
+        # ------------------------------------------------------------------
+        # 5. ONNX inference + decode — BLOCKED pending local decode path
+        #
+        # What IS known (verified from upstream source, 2026-05-18):
+        #   - Session: ort.InferenceSession(acoustic_opt.onnx, providers=[...])
+        #   - Input:   session.run(None, {"audios": audio_float32_1xT})
+        #   - Output:  emission log-probs (1, T_sub, vocab_size)
+        #   - Decoder: k2.AlignSegments() with words.bin pronunciation dict
+        #
+        # What is BLOCKED:
+        #   - k2 has no Python 3.11 PyPI wheel (project requires >=3.11)
+        #   - lattifai-python tokenizer.tokenize() calls a backend HTTP endpoint
+        #     (anti-air-gap); cannot be used here
+        #   - No documented local-only decode path in the public SDK
+        #
+        # Action required: file a follow-up issue / PR to either:
+        #   (a) use a pure-Python CTC greedy decode against words.bin if the
+        #       ONNX output is CTC-compatible (unverified), or
+        #   (b) wait for k2 to publish a Python 3.11 wheel, or
+        #   (c) accept that this provider requires a separate Python 3.9/3.10
+        #       subprocess for the k2 decode step.
+        # ------------------------------------------------------------------
         raise AlignmentProviderError(
-            "lattifai real-model integration is deferred to follow-up PR-X4.1; "
-            "use `--provider mock` or `--provider whisperx` for now. PR-X4.1 will "
-            "wire the LattifaiClient + auth handling once the air-gap-vs-telemetry "
-            "trade-off has been explicitly decided."
+            "LattifaiAlignmentProvider: model file verified and onnxruntime "
+            "available, but the forced-alignment decode step is blocked.\n\n"
+            "Cause: Lattifai's decoder requires k2 (FST library) which has no "
+            "Python 3.11 wheel on PyPI, and the SDK's tokenizer POSTs to a "
+            "Lattifai backend (incompatible with the air-gap goal).\n\n"
+            "Alternatives (see docs/plans/2026-05-18-pr-x4-1-lattifai-onnx-air-gap.md §9.5):\n"
+            "  - Use --provider whisperx for the supported air-gap path "
+            "(PR-X3.1: WhisperX + Chinese wav2vec2 phoneme model)\n"
+            "  - Use --provider mock for offline placeholder alignments\n"
+            "  - Track PR-X4.2 for the decode body (from-scratch viterbi over ONNX emissions)\n\n"
+            "See docs/runbooks/lattifai-onnx-setup.md for current setup status."
         )
 
 
@@ -240,6 +325,7 @@ def align_to_file(
     *,
     provider: str = "mock",
     config_path: str | Path | None = None,
+    **provider_options: Any,
 ) -> Path:
     """Drive an alignment provider and write the canonical artefact."""
     if provider == "mock":
@@ -250,7 +336,7 @@ def align_to_file(
         prov = LattifaiAlignmentProvider()
     else:
         raise AlignmentError(f"unknown provider: {provider!r} (expected one of: mock, whisperx, lattifai)")
-    words = prov.align(audio_path, transcript_segments)
+    words = prov.align(audio_path, transcript_segments, **provider_options)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "audio_path": str(audio_path),
