@@ -153,14 +153,15 @@ def test_align_to_file_rejects_unknown_provider(tmp_path):
         align_to_file("audio.wav", [], tmp_path / "out.json", provider="not-a-provider")
 
 
-def test_whisperx_provider_raises_clear_error_when_called(tmp_path):
-    """Until PR-X3.1 lands real WhisperX integration, calling the adapter
-    must raise a clear AlignmentProviderError so users know how to proceed."""
+def test_whisperx_provider_raises_clear_error_when_called(tmp_path, monkeypatch):
+    """WhisperX requires an explicit local model path for non-empty transcripts."""
+    monkeypatch.delenv("PAE_WHISPERX_ALIGN_MODEL", raising=False)
     provider = WhisperXAlignmentProvider()
     with pytest.raises(AlignmentProviderError) as exc_info:
         provider.align("audio.wav", [{"start": 0.0, "end": 1.0, "text": "x"}])
     msg = str(exc_info.value).lower()
-    assert "whisperx" in msg or "deferred" in msg
+    assert "model_path" in msg
+    assert "pae_whisperx_align_model" in msg
     # Triple-review MEDIUM (MiniMax F9): error must be AlignmentProviderError,
     # not raw ImportError leaking through to the caller.
     assert isinstance(exc_info.value, AlignmentProviderError)
@@ -170,7 +171,12 @@ def test_whisperx_provider_raises_clear_error_when_called(tmp_path):
 def test_whisperx_via_align_to_file_surfaces_error_without_writing(tmp_path):
     out = tmp_path / "out.json"
     with pytest.raises(AlignmentProviderError):
-        align_to_file("audio.wav", [], out, provider="whisperx")
+        align_to_file(
+            "audio.wav",
+            [{"start": 0.0, "end": 1.0, "text": "x"}],
+            out,
+            provider="whisperx",
+        )
     assert not out.exists()
 
 
