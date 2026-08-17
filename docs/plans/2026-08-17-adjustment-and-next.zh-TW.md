@@ -5,7 +5,7 @@
 日期：2026-08-17  
 本文件只定方向，不含實作。
 
-**階段 0 狀態（2026-08-17）：** 已落在 `docs/2026-08-17-status-sync`：`86d9560`（pyannote CUDA `.to` 防護）、`08a165b`（two-pass loudnorm／報告）、`21e68ba`（文件對齊）。2026-05-18 音量修改已收下。19 個鎖住的 worktree 未動。沒有改版本號。沒有 `dev` → `main`。沒有 push／開 PR。
+**階段 0 狀態（2026-08-17）：** 已落在 `docs/2026-08-17-status-sync`：`86d9560`、`08a165b`、`21e68ba`、`db56c26`。審查見 `docs/reviews/2026-08-17-phase0-status-sync.zh-TW.md`；F1／F2 已在同分支修好。19 個鎖住的 worktree 未動。沒有改版本號。沒有 `dev` → `main`。沒有 push／開 PR。
 
 ---
 

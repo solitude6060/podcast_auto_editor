@@ -4,39 +4,39 @@ Last updated: 2026-08-17
 
 ## 繁體中文快照
 
-階段 0 已落在 `docs/2026-08-17-status-sync`：`86d9560`（pyannote CUDA `.to`）、`08a165b`（two-pass loudnorm／報告）、以及同分支的文件對齊。驗證：314 passed、11 skipped、`compileall` 通過。版本仍是 `0.1.0`。沒有 push、沒有開 PR、沒有 `dev` → `main`。下一步要你提供一集真實口語音檔與一個已安裝的非 stub 語音辨識。
+階段 0 在 `docs/2026-08-17-status-sync`。審查對 `dev` `2c9a81d`…`db56c26` 要求修改：後面的 export profile 失敗時，頂層品質門檻仍顯示第一個 profile 通過，且 CLI 失敗時不寫 timeline。這兩點已在同分支修好。驗證指令見下方。版本仍是 `0.1.0`。沒有 push。下一步仍是一集真實口語音檔。
 
 ---
 
 ## Evidence / progress
 
 - **Feature branch:** `docs/2026-08-17-status-sync` off `dev` `2c9a81d`.
-- **Phase 0 commits:** `86d9560` (CUDA `.to` guard), `08a165b` (loudnorm / reports), `21e68ba` (README / SDD / status sync).
-- **Production branch:** `main` @ `ae3ec41`. `dev` remains 40 commits ahead of `main`; this branch is not promoted.
-- **Tests:** 314 passed, 11 skipped (325 collected) on 2026-08-17 after the new pyannote regression.
-- **Version:** `0.1.0` in `pyproject.toml`. Do not bump to `1.0.0`.
+- **Phase 0 commits (pre-review):** `86d9560`, `08a165b`, `21e68ba`, `db56c26`.
+- **Review:** `docs/reviews/2026-08-17-phase0-status-sync.md` — REQUEST CHANGES on F1/F2.
+- **Remediation:** F1/F2/F3 on this branch; see `docs/fix-logs/2026-08-17-phase0-quality-gate-metadata.md`.
+- **Production branch:** `main` @ `ae3ec41`. Not promoted.
+- **Version:** `0.1.0`. Do not bump to `1.0.0`.
 - **Last real-episode attempt:** synthetic 4 s silence plus stub walkthrough. Walkthrough disk `/media/ma/1AF83466F83441F5` was unmounted on 2026-08-17.
 
 ## Latest decisions (2026-08-17)
 
 - ADR Option A: evidence-first. Stay on `0.1.x`.
-- Keep the 2026-05-18 quality patch (complete TDD pair).
+- Keep the 2026-05-18 quality patch; fix its quality-gate headline and persist-on-failure path.
 - Product sentence: local + per-edit review + `recipe.v1` + measured publish gates + optional Chinese ASR.
-- Do not compete with WyattBlue `auto-editor` on CLI silence-cut.
-- Do not start a local Descript clone.
 
 ## Risk radar
 
 | Item | Level | Note |
 |---|---|---|
 | No publishable real episode | high | Blocks continue / adjust / stop |
-| README / SDD drift | resolved on this branch | Recipe marked implemented; SDD cites 325 collected |
-| 19 locked worktrees in `.claude/worktrees/` | medium | Untouched; do not delete without asking |
+| Quality-gate report headline | resolved on this branch | Failed later profile now sets top-level `passed: false` and writes the timeline |
+| 19 locked worktrees in `.claude/worktrees/` | medium | Untouched |
 | `main` 40 commits behind | medium | Wait for Phase 1 evidence |
 
 ## Canonical docs
 
 - SDD: `docs/sdd/podcast-auto-editor-mvp.md`
-- Review: `docs/reviews/2026-08-17-project-status-review.md`
+- Phase 0 review: `docs/reviews/2026-08-17-phase0-status-sync.md`
+- Status review: `docs/reviews/2026-08-17-project-status-review.md`
 - Landscape: `docs/research/2026-08-17-competitor-landscape.md`
 - Plan: `docs/plans/2026-08-17-adjustment-and-next.md`

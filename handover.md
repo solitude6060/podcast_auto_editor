@@ -4,27 +4,16 @@ Last updated: 2026-08-17
 
 ## 繁體中文快照
 
-這次後續 session 做完不需拍板的工程：修 CUDA 主機上 pyannote 測試崩潰、收下 2026-05-18 音量／報告修改、對齊 README／SDD／`user_todo`。分支 `docs/2026-08-17-status-sync`，尚未 push。下一手：你提供真實音檔與一個已安裝的語音辨識。不要從 1.0 簽核接著做。
+這次做了 `dev`…`db56c26` 的 code review，並修了兩個高嚴重度問題：後面 profile 失敗時頂層門檻仍顯示通過，以及 CLI 失敗時不把失敗 metadata 寫進 timeline。專案文件（SDD 品質門檻、`status.md`／`tracker.md`／這份 handover、審查與 fix log）已對齊。尚未 push。下一手：真實音檔，或你下令再 push／開 PR。
 
 ---
 
-## This session (engineering follow-up)
+## This session
 
-- Interpreted “complete every no-decision engineering item” as Phase 0 only.
-- Did **not**: bump `0.1.0`, run a real episode, delete 19 worktrees, push, or open a PR.
-- Branch: `docs/2026-08-17-status-sync` from `dev` `2c9a81d` (same checkout, no extra worktree).
-- `86d9560` — `fix: skip CUDA move when pyannote pipeline has no .to`
-- `08a165b` — `feat: two-pass loudnorm and per-profile quality reports`
-- `21e68ba` — `docs: sync README, SDD, and status with 2026-08-17 review`
-- Verification (before the docs commit; docs do not change tests):
-
-```bash
-UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider
-# 314 passed, 11 skipped
-UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests
-git ls-files .omx
-# empty
-```
+- Working tree was already committed; no extra “commit leftover WIP” step.
+- Review: `docs/reviews/2026-08-17-phase0-status-sync.md` (REQUEST CHANGES on F1/F2).
+- Fixes: top-level `quality_gate_report` on later-profile failure; CLI `render` / `run_pipeline` persist accepted timeline on `MediaToolError`; restored MiniMax-hunk assertion.
+- Docs: SDD quality gates, CHANGELOG, `status.md`, `tracker.md`, this file, fix log.
 
 ## Next session starts here
 
@@ -35,12 +24,11 @@ git ls-files .omx
 
 ## Operator notes
 
-- Verification command in project AGENTS.md still uses `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor` (scratch cache only).
+- Verification command uses `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor` (scratch cache only).
 - Keep `.omx/`, `.omc/`, `.claude/`, `runs/`, media, and credentials untracked.
-- MiniMax key must stay ephemeral if used.
+- Commit with `git commit-tree` if Cursor injects `Co-authored-by`.
 
 ## Do not resume
 
-- `user_todo.md` B1–B3 (release date / 1.1 defer list / release branch) as the next autopilot gate.
-- Adding Lattifai decode or another ASR provider before a real episode.
-- Discarding `08a165b` (the quality patch was complete and kept).
+- `user_todo.md` B1–B3 as the next gate.
+- Adding another ASR provider before a real episode.

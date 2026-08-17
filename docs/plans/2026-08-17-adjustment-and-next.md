@@ -6,7 +6,7 @@ Date: 2026-08-17
 Inputs: `docs/sdd/podcast-auto-editor-mvp.md`, `docs/reviews/2026-08-17-project-status-review.md`, `docs/research/2026-08-17-competitor-landscape.md`, `user_todo.md`, `docs/plans/2026-05-17-persona-ab-stage1.md`  
 Workflow: plan-file only. No implementation in this document.
 
-**Phase 0 status (2026-08-17):** Landed on `docs/2026-08-17-status-sync` as `86d9560` (pyannote CUDA `.to` guard), `08a165b` (two-pass loudnorm / reports), `21e68ba` (docs sync). The 2026-05-18 quality patch was kept. 19 locked worktrees were left untouched. No version bump. No `dev` → `main`. No push/PR.
+**Phase 0 status (2026-08-17):** Landed on `docs/2026-08-17-status-sync` as `86d9560` (pyannote CUDA `.to` guard), `08a165b` (two-pass loudnorm / reports), `21e68ba` (docs sync), `db56c26` (hash record). Review `docs/reviews/2026-08-17-phase0-status-sync.md` requested changes on F1/F2; those are fixed on this branch. 19 locked worktrees were left untouched. No version bump. No `dev` → `main`. No push/PR.
 
 ---
 
