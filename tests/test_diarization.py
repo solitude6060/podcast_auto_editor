@@ -605,3 +605,38 @@ def test_pyannote_pipeline_is_constructed_once_per_provider_instance(tmp_path, m
     assert call_count["n"] == 1, (
         f"Expected pipeline to be constructed once, got {call_count['n']}"
     )
+
+
+def test_pyannote_skips_cuda_move_when_pipeline_has_no_to(tmp_path, monkeypatch):
+    """A pipeline without `.to` must still diarize when CUDA is reported available."""
+    import sys
+    import types
+
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF\x24WAVEfmt")
+    annotation = _make_fake_annotation([(0.0, 1.0, "SPEAKER_00")])
+
+    class _CpuOnlyPipeline:
+        def __call__(self, path):
+            return annotation
+
+    class _PipelineClass:
+        @staticmethod
+        def from_pretrained(model_id, use_auth_token=None):
+            return _CpuOnlyPipeline()
+
+    fake_mod = types.ModuleType("pyannote.audio")
+    fake_mod.Pipeline = _PipelineClass
+    parent = types.ModuleType("pyannote")
+    parent.audio = fake_mod
+    monkeypatch.setitem(sys.modules, "pyannote.audio", fake_mod)
+    monkeypatch.setitem(sys.modules, "pyannote", parent)
+    monkeypatch.setenv("HF_TOKEN", "tok")
+
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+    out = tmp_path / "out.json"
+    result = diarize_to_file(audio, out, provider="pyannote")
+    data = json.loads(result.read_text())
+    assert data["schema_version"] == SCHEMA_VERSION

@@ -197,11 +197,12 @@ class PyannoteDiarizationProvider(DiarizationProvider):
                 f"Original error type: {type(exc).__name__}"
             ) from None
 
-        # Optional: move to GPU when available (CPU default for local-first use)
+        # Optional: move to GPU when available (CPU default for local-first use).
+        # Fake/test pipelines and some CPU-only objects have no `.to`.
         try:
             import torch
 
-            if torch.cuda.is_available():
+            if torch.cuda.is_available() and hasattr(pipeline, "to"):
                 pipeline.to(torch.device("cuda"))
         except ImportError:
             pass  # torch not installed with CUDA; stay on CPU
