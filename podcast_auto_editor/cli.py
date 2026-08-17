@@ -628,6 +628,10 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        except MediaToolError as exc:
+            write_json(paths.accepted_timeline, timeline)
+            print(str(exc), file=sys.stderr)
+            return 1
         rendered = transcribe_and_write(paths, rendered)
         write_json(paths.accepted_timeline, rendered)
         print(paths.accepted_timeline)
@@ -643,6 +647,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments, export_profile_names=args.export_profile)
         except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except MediaToolError as exc:
             print(str(exc), file=sys.stderr)
             return 1
         print(paths.root)

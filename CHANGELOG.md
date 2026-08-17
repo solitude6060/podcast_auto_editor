@@ -31,6 +31,7 @@ All notable changes to this project should be documented here.
 - Pending public release; keep entries grouped under Added/Changed/Fixed/Security.
 
 ### Fixed
+- When a later export profile fails the quality gate, the top-level `quality_gate_report` is that failed profile's report, and `render` / `run` write `timeline.accepted.v1.json` so `report` can name the failed profile without a traceback.
 - Pyannote pipeline load skips the optional CUDA `.to` move when the pipeline object has no `.to`, so test fakes and CPU-only objects no longer crash on CUDA hosts.
 - Added `--dry-run` alias path handling for `podcast_auto_editor ai draft` (mapped to no-network draft-mode behavior).
 - Dashboard context now consistently persists `ai_draft` path/link data for UI and JSON clients when present.

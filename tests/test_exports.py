@@ -75,7 +75,8 @@ def test_render_quality_failure_names_profile(monkeypatch, tmp_path):
     profiles = timeline["export_metadata"]["export_profiles"]
     assert [profile["name"] for profile in profiles] == ["archive-wav", "podcast-stereo"]
     assert profiles[-1]["quality_gate_report"]["passed"] is False
-    assert timeline["export_metadata"]["quality_gate_report"] == profiles[0]["quality_gate_report"]
+    assert timeline["export_metadata"]["quality_gate_report"] == profiles[-1]["quality_gate_report"]
+    assert timeline["export_metadata"]["quality_gate_report"]["passed"] is False
     assert timeline["export_metadata"]["failed_quality_profile"]["name"] == "podcast-stereo"
     assert timeline["export_metadata"]["failed_quality_profile"]["failed_checks"] == ["loudness"]
 

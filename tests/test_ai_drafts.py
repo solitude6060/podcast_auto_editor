@@ -128,6 +128,7 @@ def test_generate_ai_draft_normalizes_live_response(monkeypatch):
     assert payload["retake_decisions"][0]["suggested_action"] == "probably_delete"
     assert payload["retake_decisions"][0]["confidence"] == 1.0
     assert payload["retake_decisions"][0]["operation_known"] is True
+    assert payload["operation_explanations"][0]["operation_known"] is True
 
 
 def test_generate_ai_draft_uses_minimax_env_key_without_persisting_it(monkeypatch):

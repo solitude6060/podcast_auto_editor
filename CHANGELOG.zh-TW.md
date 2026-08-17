@@ -35,6 +35,7 @@
 
 ### 修正
 - 尚未正式發布。
+- 後面的 export profile 品質門檻失敗時，頂層 `quality_gate_report` 改記該失敗 profile；`render`／`run` 會寫出 `timeline.accepted.v1.json`，`report` 可以指出失敗 profile，而不只丟 traceback。
 - Pyannote pipeline 載入時，若物件沒有 `.to` 就略過可選的 CUDA 搬移，避免測試假物件或 CPU-only pipeline 在有 CUDA 的主機上崩潰。
 - `ai draft` 加入 `--dry-run` 互斥/別名行為，並對齊 `--no-net` 安全路徑。
 - `review serve` 在含 AI 草稿時會保留對 dashboard 的可見連結，避免 API/HTML 資訊斷層。
