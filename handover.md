@@ -11,9 +11,9 @@ Last updated: 2026-08-17
 ## This session
 
 - Working tree was already committed; no extra “commit leftover WIP” step.
-- Review: `docs/reviews/2026-08-17-phase0-status-sync.md` (REQUEST CHANGES on F1/F2).
-- Fixes: top-level `quality_gate_report` on later-profile failure; CLI `render` / `run_pipeline` persist accepted timeline on `MediaToolError`; restored MiniMax-hunk assertion.
-- Docs: SDD quality gates, CHANGELOG, `status.md`, `tracker.md`, this file, fix log.
+- Review: `97c977d` — `docs/reviews/2026-08-17-phase0-status-sync.md` (REQUEST CHANGES on F1/F2).
+- Fixes: `f723796` — top-level `quality_gate_report` on later-profile failure; CLI `render` / `run_pipeline` persist accepted timeline on `MediaToolError`; restored MiniMax-hunk assertion.
+- Docs: `db18b7d` — SDD quality gates, `status.md`, `tracker.md`, this file.
 
 ## Next session starts here
 

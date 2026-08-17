@@ -12,8 +12,8 @@ Last updated: 2026-08-17
 
 - **Feature branch:** `docs/2026-08-17-status-sync` off `dev` `2c9a81d`.
 - **Phase 0 commits (pre-review):** `86d9560`, `08a165b`, `21e68ba`, `db56c26`.
-- **Review:** `docs/reviews/2026-08-17-phase0-status-sync.md` — REQUEST CHANGES on F1/F2.
-- **Remediation:** F1/F2/F3 on this branch; see `docs/fix-logs/2026-08-17-phase0-quality-gate-metadata.md`.
+- **Review:** `97c977d` — `docs/reviews/2026-08-17-phase0-status-sync.md` (REQUEST CHANGES on F1/F2).
+- **Remediation:** `f723796` (F1/F2/F3); `db18b7d` (SDD / status). See `docs/fix-logs/2026-08-17-phase0-quality-gate-metadata.md`.
 - **Production branch:** `main` @ `ae3ec41`. Not promoted.
 - **Version:** `0.1.0`. Do not bump to `1.0.0`.
 - **Last real-episode attempt:** synthetic 4 s silence plus stub walkthrough. Walkthrough disk `/media/ma/1AF83466F83441F5` was unmounted on 2026-08-17.
