@@ -7,20 +7,21 @@ English version: [`README.md`](README.md)
 - **整個流程都在你的筆電上跑。** 不用註冊、不用登入、不用上傳。音檔不會離開你的硬碟。
 - **完全免費，沒有月費，沒有按分鐘計費。** 三月剪 90 分鐘那集，四月休息，五月剪兩集 — 不管怎麼用，成本都是零。
 - **每個剪輯動作都可以審過再上線。** 工具產出一份 `timeline.v1` JSON 列出所有提議的剪輯，加上每段剪輯的試聽檔；你在本機 dashboard 上一個一個按 accept 或 reject。沒有任何 AI 自動幫你改掉的事。
-- **剪輯紀錄是可重現的。** 一次跑完會產一份可以 commit 進 git 的紀錄檔，幾個月後對同一份原始音檔 replay 就會得到一模一樣的成果。`docs/research/2026-05-17-competitor-landscape.md` 裡調查過的競品都沒做這件事。
+- **剪輯紀錄是可重現的。** 一次跑完會產一份 `recipe.v1`，可以 commit 進 git，幾個月後對同一份原始音檔 replay 就會得到一模一樣的成果。2026-08-17 競品調查沒找到「本機、不上傳、而且是可進 git 的 `timeline.v1` 產物」的商業對等物；見 `docs/research/2026-08-17-competitor-landscape.zh-TW.md`。
 
 ## 怎麼跟其他工具比
 
-| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
-|---|---|---|---|---|
-| 在本機跑 | 不是 | 不是 | 不是 | **是** |
-| 音檔要上傳給廠商 | 要 | 要 | 要 | **不用** |
-| 月費 | 16–50 美金 | 24–79 美金 | 11–90 美金 | **免費** |
-| 按 AI 用量計費 | 要（按分鐘） | 要 | 要（按小時） | **不用** |
-| 一個一個審剪輯動作 | 部分 | 部分 | 只有報告 | **可以** |
-| 剪輯紀錄可以丟進 git | 不行 | 不行 | 不行 | **可以**（規劃中，見 roadmap） |
+| | Descript | Riverside | Cleanvoice | auto-editor | Podcast Auto Editor |
+|---|---|---|---|---|---|
+| 在本機跑 | 不是 | 不是 | 不是 | **是**（命令列） | **是** |
+| 音檔要上傳給廠商 | 要 | 要 | 要 | **不用**（命令列） | **不用** |
+| 月費下限 | 年繳約 16 美元／月 | 年繳約 24 美元／月 | 11 美元／月 | **免費**（命令列） | **免費** |
+| 按 AI 用量計費 | 要（按分鐘） | 要 | 要（按小時） | **不用** | **不用** |
+| 一個一個審剪輯動作 | 部分 | 部分 | 只有報告 | 沒有 | **可以** |
+| 剪輯紀錄可以丟進 git | 不行 | 不行 | 不行 | 只有命令列旗標 | **可以**（`recipe.v1`） |
+| 降噪／enhance | 有 | 有 | 有 | 沒有 | **沒有**（尚未實作） |
 
-資料來源：`docs/research/2026-05-17-competitor-landscape.md`（2025-2026 各家定價頁 + Reddit / G2 用戶抱怨）。
+資料來源：`docs/research/2026-08-17-competitor-landscape.zh-TW.md`（2026-08-17 官方頁）。WyattBlue `auto-editor` 佔住本機命令列靜音剪（當日 4,984 stars）。本專案沒有降噪。
 
 ## 這是什麼
 
@@ -100,7 +101,7 @@ uv run python -m podcast_auto_editor review rebuild runs/episode/review-session.
 uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
 ```
 
-內建的 `stub` provider 是 deterministic、無額外依賴，主要用於測試與流程串接。未來真實 ASR provider 應以 optional adapter 方式加入；provider 輸出會先通過 transcript validation，才會寫入檔案。
+內建的 `stub` provider 是 deterministic、無額外依賴，主要用於測試與流程串接。套件內已有可選適配：`faster-whisper-local`、`whisper-cpp-local`、`qwen3-asr-local`。預設仍是 `stub`。Provider 輸出會先通過 transcript validation，才會寫入檔案。
 
 可用 `validate-run` 在媒體處理前做 read-only 預檢：
 
@@ -166,7 +167,7 @@ uv run python -m podcast_auto_editor transcribe input.wav \
 工具可以幫每個 transcript cue 標上 `speaker_id`（哪個人講的），讓 AI 章節草稿、show notes、per-speaker filler 偵測都能正確歸屬。Provider 介面是可換的：
 
 - **`mock`**（離線、內建）— 讀一份 JSON config 把預期 segments 直接回傳。CI 跟沒有 HuggingFace token 的開發機都用這個。
-- **`pyannote`** — 用 lazy import 包裝 `pyannote-audio` 3.x。實機整合留到後續 PR；現在跑會丟一個清楚的 `DiarizationProviderError`，訊息會告訴你是要先 `uv add pyannote-audio` 還是等實機整合 PR 落地。
+- **`pyannote`** — 用 lazy import 包裝 `pyannote-audio` 3.x。裝好可選套件、設好 `HF_TOKEN`、並接受模型授權後，`diarize --provider pyannote` 會跑真實 pipeline。缺套件、缺 token、或未接受授權時會丟 `DiarizationProviderError`，並附安裝說明。
 
 ```bash
 # Mock provider — 從 JSON config 讀 segments（離線）

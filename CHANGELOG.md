@@ -27,6 +27,7 @@ All notable changes to this project should be documented here.
 - Review dashboard now exposes a per-operation detail endpoint at `GET /api/operation/<id>` returning the same canonical payload shape as the `next` field from `/api/status` (operation_id, type, state, risk, confidence, source, detector, reason_code, evidence_text, required_review, preview_ref, removed_ref, decision_commands). Filter parameter on `GET /api/status?filter=<type>` narrows the `next` field so producers can sweep silence-cuts first, then retake-cuts. Browser keyboard nav: `a` accept, `r` reject, `u` undo, `j` advance to the next pending operation. `k` currently mirrors `j` as a forward alias; true previous-operation navigation is a follow-up. Keyboard shortcuts are suppressed when typing in the reviewer or note inputs. The `/api/operation/<id>` path guard rejects percent-encoded traversal variants (`%2e%2e`, `%2F…`), control characters, and `.`/`..` segments before lookup.
 
 ### Changed
+- README comparison table now includes WyattBlue `auto-editor`, marks `recipe.v1` as implemented, and states that denoise is not shipped. SDD verification cites the current collect count. `user_todo.md` 1.0 sign-off (B1–B3) is superseded by `docs/plans/2026-08-17-adjustment-and-next.md`. The pyannote adapter runs the real pipeline when optional deps, `HF_TOKEN`, and the model license are present; the older Added bullet that said integration was deferred is historical.
 - Pending public release; keep entries grouped under Added/Changed/Fixed/Security.
 
 ### Fixed

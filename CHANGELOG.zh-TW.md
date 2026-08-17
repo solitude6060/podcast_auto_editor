@@ -30,6 +30,7 @@
 - Review dashboard 新增單一操作的詳情 endpoint：`GET /api/operation/<id>`，回傳跟 `/api/status` 的 `next` 一樣的標準欄位（operation_id、type、state、risk、confidence、source、detector、reason_code、evidence_text、required_review、preview_ref、removed_ref、decision_commands）。狀態 endpoint 新增篩選參數 `GET /api/status?filter=<type>`，可以先掃完所有 silence-cut 再處理 retake-cut。瀏覽器鍵盤快捷鍵：`a` accept、`r` reject、`u` undo、`j` 跳到下一個待審。`k` 目前是 `j` 的 forward alias，真正的「回到上一個」要等後續 PR。游標在 reviewer / note 輸入欄時快捷鍵會自動暫停。`/api/operation/<id>` 的 path guard 會在比對前先把 percent-encoded 變形（`%2e%2e`、`%2F…`）跟控制字元跟 `.`/`..` 擋掉。
 
 ### 變更
+- README 比較表加入 WyattBlue `auto-editor`，標明 `recipe.v1` 已實作，並寫明尚未做降噪。SDD 驗證改記目前收集到的測試數。`user_todo.md` 的 1.0 簽核（B1–B3）改由 `docs/plans/2026-08-17-adjustment-and-next.zh-TW.md` 取代。pyannote 在可選套件、`HF_TOKEN`、模型授權都齊時會跑真實 pipeline；「新增」裡寫 integration deferred 的那一條是當時紀錄。
 - 尚未正式發布；發布前需更新版本與驗證結果。
 
 ### 修正

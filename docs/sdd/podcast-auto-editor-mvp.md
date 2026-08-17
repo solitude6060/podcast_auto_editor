@@ -69,6 +69,9 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Advanced Phase A8 added CI/release hygiene tests for uv GitHub Actions, changelog, release template, and `.omx/` local-only checks.
 
 ## Verification
+- 2026-08-17 on `docs/2026-08-17-status-sync` after Phase 0: `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 314 passed, 11 skipped (325 collected). See `docs/reviews/2026-08-17-project-status-review.md`.
+- Same session: `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests` => passed.
+- Historical early-MVP counts below are the TDD record. They are not the current suite size.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q podcast_auto_editor tests` => passed.
 - Architect final re-verification => APPROVED.
