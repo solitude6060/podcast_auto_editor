@@ -41,6 +41,36 @@ def test_build_html_report_escapes_values_and_links_artifacts(tmp_path):
     assert 'href="exports/episode.podcast-stereo.mp3"' in html
 
 
+def test_build_html_report_surfaces_profile_quality_details(tmp_path):
+    root = tmp_path / "runs" / "ep1"
+    (root / "diff").mkdir(parents=True)
+    (root / "exports").mkdir()
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({
+        "operations": [],
+        "export_metadata": {
+            "export_profiles": [
+                {
+                    "name": "podcast-stereo",
+                    "path": str(root / "exports" / "episode.podcast-stereo.mp3"),
+                    "quality_gate_report": {
+                        "passed": False,
+                        "checks": [{"name": "loudness", "passed": False, "target": -16.0, "actual": -17.3}],
+                    },
+                }
+            ],
+            "failed_quality_profile": {"name": "podcast-stereo", "failed_checks": ["loudness"]},
+        },
+    }))
+    (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 0, "accepted_count": 0, "rejected_count": 0, "total_removed_duration": 0.0}))
+
+    html = build_html_report(root)
+
+    assert "podcast-stereo" in html
+    assert "failed" in html
+    assert "loudness" in html
+    assert "-17.3" in html
+
+
 def test_build_html_report_handles_missing_timeline(tmp_path):
     root = tmp_path / "runs" / "ep1"
     root.mkdir(parents=True)

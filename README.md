@@ -135,6 +135,8 @@ Removed-segment previews are generated from the actual operation source ranges, 
 
 Render exits with a clear quality-gate failure when loudness, true peak, clipping, or A/V sync checks fail; failed quality metadata is diagnostic, not a publishable success state.
 
+Rendered audio uses measured two-pass FFmpeg loudnorm per export profile. Lossy podcast exports reserve extra true-peak headroom before MP3/AAC encoding, then re-measure the encoded file; the export is still rejected unless the final file passes the configured loudness, true peak, and clipping gates. Markdown, JSON, and HTML reports include per-profile check targets and actual values, so a failed `podcast-stereo` or `podcast-mono` export is visible without opening `timeline.accepted.v1.json`.
+
 Speech cleanup heuristics can propose filler or false-start removals as `speech_cut` operations, but these speech-changing edits stay proposed until explicitly accepted with `review-accept`.
 
 Optional MP4 rendering preflights source audio/video stream durations and drift before export; missing or drifting source streams fail before video render.
@@ -253,6 +255,8 @@ uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.j
 ```
 
 The server-side AI calls are disabled automatically in `--dry-prompt` / `--dry-run`.
+
+For OpenAI-compatible local or fallback endpoints, pass `--base-url` / `--model` explicitly. When the base URL points at MiniMax, `ai draft` and `explain --with-ai` read `MINIMAX_API_KEY` from the environment if no `--api-key` is passed; the key is used only for the request and is not written to AI artifacts, reports, or recipes. Local endpoints continue to use `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, and optional `LOCAL_LLM_API_KEY`.
 
 ## Docker AI-stack e2e smoke check
 
@@ -392,3 +396,5 @@ LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
 ```
 
 `api-local` is for an existing llama.cpp/OpenAI-compatible API model such as `qwen3.6-27b-turbo3`; it prints no download command and only checks `/v1/models` when asked for readiness.
+
+`ai doctor` also reports optional Python packages for `faster-whisper-local`, `qwen3-asr-local`, and `pyannote`; missing optional packages are warnings unless the selected command requires them.

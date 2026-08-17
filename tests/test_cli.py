@@ -478,6 +478,48 @@ def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
     assert "transcript.speech_cleanup_heuristic: 1" in out
 
 
+def test_report_cli_surfaces_profile_quality_details(tmp_path, capsys):
+    root = tmp_path / "runs" / "ep1"
+    (root / "diff").mkdir(parents=True)
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({
+        "operations": [],
+        "export_metadata": {
+            "quality_gate_report": {"passed": True},
+            "export_profiles": [
+                {
+                    "name": "archive-wav",
+                    "path": str(root / "exports" / "episode.edited.wav"),
+                    "quality_gate_report": {
+                        "passed": True,
+                        "checks": [{"name": "loudness", "passed": True, "target": -16.0, "actual": -16.0}],
+                    },
+                },
+                {
+                    "name": "podcast-stereo",
+                    "path": str(root / "exports" / "episode.podcast-stereo.mp3"),
+                    "quality_gate_report": {
+                        "passed": False,
+                        "checks": [{"name": "loudness", "passed": False, "target": -16.0, "actual": -17.3}],
+                    },
+                },
+            ],
+            "failed_quality_profile": {"name": "podcast-stereo", "failed_checks": ["loudness"]},
+        },
+    }))
+    (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 0, "accepted_count": 0, "rejected_count": 0, "total_removed_duration": 0.0}))
+
+    assert main(["report", str(root), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["quality_profiles"][1]["name"] == "podcast-stereo"
+    assert payload["failed_quality_profile"]["failed_checks"] == ["loudness"]
+
+    assert main(["report", str(root), "--format", "markdown"]) == 0
+    out = capsys.readouterr().out
+    assert "podcast-stereo: failed" in out
+    assert "loudness: failed (target -16.0, actual -17.3)" in out
+    assert "Quality gate: True" in out
+
+
 def test_review_list_cli_outputs_operation_preview_table(tmp_path, capsys):
     timeline = create_noop_timeline({"path": "input.wav", "duration": 4.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     timeline["operations"].append({

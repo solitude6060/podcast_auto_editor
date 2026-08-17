@@ -192,7 +192,7 @@ def validate_source_av_sync(tracks: list[dict[str, Any]], quality: QualityConfig
         "method": "timeline-source-duration-delta",
     }
 
-def render_audio(input_path: str | Path, output_path: str | Path, kept: list[dict[str, float]], config: AppConfig, channels: int = 2) -> None:
+def render_audio(input_path: str | Path, output_path: str | Path, kept: list[dict[str, float]], config: AppConfig, channels: int = 2, true_peak_margin_db: float | None = None) -> None:
     require_tool("ffmpeg")
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,26 @@ def render_audio(input_path: str | Path, output_path: str | Path, kept: list[dic
         raise MediaToolError("cannot render with no kept segments")
     select_expr = "+".join(f"between(t,{seg['source_start']:.6f},{seg['source_end']:.6f})" for seg in kept)
     target = config.quality.mono_loudness_lufs if channels == 1 else config.quality.stereo_loudness_lufs
-    filters = f"aselect='{select_expr}',asetpts=N/SR/TB,loudnorm=I={target}:TP={config.quality.true_peak_ceiling_db}:LRA=11"
+    if true_peak_margin_db is None:
+        true_peak_margin_db = 1.0 if output_path.suffix.lower() in {".mp3", ".m4a", ".aac"} else 0.0
+    true_peak_target = config.quality.true_peak_ceiling_db - true_peak_margin_db
+    layout = "mono" if channels == 1 else "stereo"
+    base_filters = f"aselect='{select_expr}',asetpts=N/SR/TB,aformat=channel_layouts={layout}"
+    analysis_filter = f"{base_filters},loudnorm=I={target}:TP={true_peak_target}:LRA=11:print_format=json"
+    analysis = run_command(["ffmpeg", "-hide_banner", "-nostats", "-i", str(input_path), "-af", analysis_filter, "-ac", str(channels), "-f", "null", "-"])
+    match = _LOUDNORM_JSON.search(analysis.stderr)
+    if analysis.returncode != 0 or not match:
+        raise MediaToolError(analysis.stderr.strip() or "ffmpeg loudnorm analysis failed")
+    measured = json.loads(match.group(0))
+    filters = (
+        f"{base_filters},"
+        f"loudnorm=I={target}:TP={true_peak_target}:LRA=11:"
+        f"measured_I={measured['input_i']}:"
+        f"measured_TP={measured['input_tp']}:"
+        f"measured_LRA={measured['input_lra']}:"
+        f"measured_thresh={measured['input_thresh']}:"
+        f"offset={measured['target_offset']}:linear=true:print_format=summary"
+    )
     command = ["ffmpeg", "-y", "-hide_banner", "-i", str(input_path), "-af", filters, "-ac", str(channels), str(output_path)]
     result = run_command(command)
     if result.returncode != 0:

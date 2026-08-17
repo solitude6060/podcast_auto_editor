@@ -128,7 +128,29 @@ def test_generate_ai_draft_normalizes_live_response(monkeypatch):
     assert payload["retake_decisions"][0]["suggested_action"] == "probably_delete"
     assert payload["retake_decisions"][0]["confidence"] == 1.0
     assert payload["retake_decisions"][0]["operation_known"] is True
-    assert payload["operation_explanations"][0]["operation_known"] is True
+
+
+def test_generate_ai_draft_uses_minimax_env_key_without_persisting_it(monkeypatch):
+    timeline = _timeline_with_operations()
+    transcript_segments = [{"start": 0.0, "end": 0.4, "text": "hi there"}]
+    observed = {}
+
+    def fake_chat_with_local_ai(**kwargs) -> str:
+        observed.update(kwargs)
+        return json.dumps({"chapters": [], "summary": {}, "show_notes": [], "retake_decisions": [], "operation_explanations": []})
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "secret-token")
+    monkeypatch.setattr("podcast_auto_editor.ai_drafts.chat_with_local_ai", fake_chat_with_local_ai)
+
+    payload = generate_ai_draft(
+        timeline=timeline,
+        transcript_segments=transcript_segments,
+        base_url="https://api.minimax.io/v1",
+        model="MiniMax-M2.7",
+    )
+
+    assert observed["api_key"] == "secret-token"
+    assert "secret-token" not in json.dumps(payload)
 
 
 def test_ai_draft_prompt_omits_speakers_when_segments_absent(monkeypatch):

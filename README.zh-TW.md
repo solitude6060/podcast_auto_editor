@@ -125,6 +125,8 @@ uv run python -m podcast_auto_editor html-report runs/episode --out runs/episode
 
 HTML report 會連到本機 preview、diff、recovery、export files，不會上傳資料，也不需要伺服器。
 
+Render 音檔會針對每個 export profile 使用 FFmpeg measured two-pass loudnorm。MP3/AAC 這類有損輸出會先保留額外 true-peak headroom，再重新量測編碼後的檔案；最後檔案仍必須通過設定中的 loudness、true peak、clipping gate 才算 publish-ready。Markdown、JSON、HTML report 都會列出每個 profile 的 target / actual，所以 `podcast-stereo` 或 `podcast-mono` 失敗時不用打開 `timeline.accepted.v1.json` 才看得懂。
+
 ## 中文 podcast（drop-in：Belle-whisper-large-v3-zh）
 
 `faster-whisper-local` provider 的 `--model` 接受任何 HuggingFace 相容的模型 ID。中文場景可以直接換到 `BELLE-2/Belle-whisper-large-v3-zh`（Apache-2.0），pipeline 其他部分不用動：
@@ -240,6 +242,8 @@ uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.j
 
 在 `--dry-prompt` 或 `--dry-run` 模式下，不會觸發任何網路 AI 呼叫。
 
+若要使用 OpenAI-compatible 本機或備援 endpoint，請明確傳 `--base-url` / `--model`。當 base URL 指向 MiniMax，`ai draft` 與 `explain --with-ai` 在沒有 `--api-key` 時會從環境變數讀 `MINIMAX_API_KEY`；key 只用在該次 request，不會寫進 AI artifact、report 或 recipe。本機 endpoint 仍使用 `LOCAL_LLM_BASE_URL`、`LOCAL_LLM_MODEL`，以及可選的 `LOCAL_LLM_API_KEY`。
+
 ## Docker AI stack E2E 檢查
 
 可用下列 script 跑本機 AI stack 檢查：
@@ -322,6 +326,8 @@ LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
 ```
 
 `api-local` 是給既有 llama.cpp / OpenAI-compatible API 模型使用，例如 `qwen3.6-27b-turbo3`；它不會輸出下載指令，只會在 readiness 檢查時讀 `/v1/models`。
+
+`ai doctor` 也會回報 `faster-whisper-local`、`qwen3-asr-local`、`pyannote` 的 optional Python packages；沒裝 optional package 只會是 warning，除非你選的指令實際需要它。
 
 ## AI 資源 profiles
 

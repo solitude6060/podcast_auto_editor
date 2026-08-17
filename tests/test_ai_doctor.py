@@ -38,6 +38,20 @@ services:
     assert "secret-token" not in json.dumps(report)
 
 
+def test_ai_doctor_reports_optional_python_ai_packages(monkeypatch):
+    def fake_find_spec(name):
+        return object() if name == "faster_whisper" else None
+
+    monkeypatch.setattr("podcast_auto_editor.ai_doctor.importlib.util.find_spec", fake_find_spec)
+
+    report = build_ai_doctor_report(check_ollama=False, require_whisper=False)
+
+    checks = {check["name"]: check for check in report["checks"]}
+    assert checks["python_package_faster_whisper"]["status"] == "ok"
+    assert checks["python_package_qwen_asr"]["status"] == "warning"
+    assert checks["python_package_pyannote"]["status"] == "warning"
+
+
 def test_ai_doctor_report_marks_missing_required_local_files(tmp_path):
     report = build_ai_doctor_report(
         compose_file=tmp_path / "missing-compose.yaml",

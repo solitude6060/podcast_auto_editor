@@ -103,16 +103,28 @@ def _review_session_summary(root: Path, operation_count: int) -> str:
     )
 
 
+def _check_list(checks: list[dict[str, Any]]) -> str:
+    if not checks:
+        return "not measured"
+    items = []
+    for check in checks:
+        status = "passed" if check.get("passed") is True else "failed" if check.get("passed") is False else "not measured"
+        items.append(f"{_escape(check.get('name'))}: {_escape(status)} (target {_escape(check.get('target'))}, actual {_escape(check.get('actual'))})")
+    return "<br>".join(items)
+
+
 def _export_rows(root: Path, profiles: list[dict[str, Any]]) -> str:
     if not profiles:
-        return '<tr><td colspan="3">No export profiles</td></tr>'
+        return '<tr><td colspan="4">No export profiles</td></tr>'
     rows = []
     for profile in profiles:
         gate = profile.get("quality_gate_report") or {}
+        status = "passed" if gate.get("passed") is True else "failed" if gate.get("passed") is False else "not measured"
         rows.append(
             "<tr>"
             f"<td>{_escape(profile.get('name'))}</td>"
-            f"<td>{_escape(gate.get('passed', 'not measured'))}</td>"
+            f"<td>{_escape(status)}</td>"
+            f"<td>{_check_list(gate.get('checks') or [])}</td>"
             f"<td>{_link(root, profile.get('path'), 'file')}</td>"
             "</tr>"
         )
@@ -183,7 +195,7 @@ def build_html_report(run_dir: str | Path) -> str:
   <section>
     <h2>Export profiles</h2>
     <table>
-      <thead><tr><th>Name</th><th>Quality passed</th><th>File</th></tr></thead>
+      <thead><tr><th>Name</th><th>Quality</th><th>Checks</th><th>File</th></tr></thead>
       <tbody>{_export_rows(root, profiles)}</tbody>
     </table>
   </section>
