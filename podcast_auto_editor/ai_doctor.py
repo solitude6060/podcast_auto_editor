@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import urllib.error
@@ -82,6 +83,16 @@ def _ollama_check(ollama_url: str, timeout_s: float) -> dict[str, Any]:
     return _check("ollama_connectivity", OK, f"Ollama responded with {model_count} installed model(s).", {"url": ollama_url, "model_count": model_count})
 
 
+def _optional_python_package_check(package: str, label: str, install_hint: str) -> dict[str, Any]:
+    try:
+        installed = importlib.util.find_spec(package) is not None
+    except ModuleNotFoundError:
+        installed = False
+    if installed:
+        return _check(f"python_package_{label}", OK, f"Optional Python package `{package}` is installed.")
+    return _check(f"python_package_{label}", WARNING, f"Optional Python package `{package}` is not installed; {install_hint}.")
+
+
 def _overall_status(checks: list[dict[str, Any]]) -> str:
     if any(check["status"] == MISSING for check in checks):
         return MISSING
@@ -113,6 +124,9 @@ def build_ai_doctor_report(
         checks.append(_check("ollama_connectivity", WARNING, "Ollama connectivity check skipped."))
     checks.append(_path_check("whisper_cpp_binary", binary_path, "whisper.cpp binary", require_whisper))
     checks.append(_path_check("whisper_cpp_model", model_path, "whisper.cpp model", require_whisper))
+    checks.append(_optional_python_package_check("faster_whisper", "faster_whisper", "install faster-whisper before selecting `faster-whisper-local`"))
+    checks.append(_optional_python_package_check("qwen_asr", "qwen_asr", "install qwen-asr before selecting `qwen3-asr-local`"))
+    checks.append(_optional_python_package_check("pyannote.audio", "pyannote", "install the `diarize-pyannote` extra and configure HF_TOKEN before selecting `pyannote`"))
     checks.append(_minimax_check(env))
     return {"schema_version": "ai-doctor.v1", "overall_status": _overall_status(checks), "checks": checks}
 

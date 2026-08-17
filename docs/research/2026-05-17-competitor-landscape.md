@@ -7,6 +7,8 @@ Sources: 2025–2026 vendor docs, Reddit r/podcasting, G2, Capterra, Trustpilot,
 
 This research informs `docs/plans/2026-05-17-persona-ab-stage1.md`.
 
+**Errata (2026-08-17):** The feature matrix in this file marked this project as shipping denoise via RNNoise/Demucs. That row is wrong; there is no denoise module in `podcast_auto_editor/`. Use `docs/research/2026-08-17-competitor-landscape.md` for current pricing and the corrected matrix.
+
 ---
 
 ## 1. Competitor Cards

@@ -17,6 +17,8 @@ from .silence import propose_silence_cuts
 from .subtitles import cues_to_srt, cues_to_vtt, heuristic_chapters, validate_chapters, validate_cues
 from .timeline import accepted_cut_ranges, build_recovery, create_noop_timeline, kept_segments, read_json, set_operation_state, validate_timeline, write_json
 
+LOSSY_TRUE_PEAK_MARGINS_DB = (1.0, 4.0, 6.0)
+
 
 def episode_id_from_path(path: str | Path) -> str:
     stem = Path(path).stem or "episode"
@@ -356,9 +358,17 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
     for profile in profiles:
         output_path = export_output_path(paths, profile)
         profile_channels = profile.channels or source_channels
-        render_audio(input_path, output_path, kept, config, channels=profile_channels)
-        metrics = measure_audio_quality(output_path)
-        gate_report = evaluate_quality(metrics, profile_channels, config.quality)
+        margins = LOSSY_TRUE_PEAK_MARGINS_DB if profile.container in {"mp3", "m4a", "aac"} else (0.0,)
+        metrics: dict[str, Any] = {}
+        gate_report: dict[str, Any] = {}
+        for margin in margins:
+            render_audio(input_path, output_path, kept, config, channels=profile_channels, true_peak_margin_db=margin)
+            metrics = measure_audio_quality(output_path)
+            gate_report = evaluate_quality(metrics, profile_channels, config.quality)
+            failed_names = {check["name"] for check in gate_report["checks"] if not check["passed"]}
+            if gate_report["passed"] or not failed_names <= {"true_peak", "clipped_samples"}:
+                break
+        gate_report["render_true_peak_margin_db"] = margin
         if profile.compatibility_default and av_sync_report is not None:
             gate_report["checks"].append({"name": "av_sync", "passed": av_sync_report["passed"], "target": av_sync_report["tolerance_s"], "actual": av_sync_report["drift_s"]})
             gate_report["passed"] = gate_report["passed"] and av_sync_report["passed"]
@@ -370,9 +380,18 @@ def render(input_path: str | Path, paths: RunPaths, timeline: dict[str, Any], co
             "quality_gate_report": gate_report,
         }
         export_profiles.append(profile_record)
+        timeline.setdefault("export_metadata", {})["export_profiles"] = export_profiles
+        timeline["export_metadata"]["edited_audio"] = export_profiles[0]["path"]
         if not gate_report["passed"]:
             failed = ", ".join(check["name"] for check in gate_report["checks"] if not check["passed"])
+            timeline["export_metadata"]["quality_gate_report"] = gate_report
+            timeline["export_metadata"]["failed_quality_profile"] = {
+                "name": profile.name,
+                "failed_checks": [check["name"] for check in gate_report["checks"] if not check["passed"]],
+                "quality_gate_report": gate_report,
+            }
             raise MediaToolError(f"quality gate failed for {profile.name}: {failed}")
+        timeline["export_metadata"]["quality_gate_report"] = export_profiles[0]["quality_gate_report"]
 
     timeline.setdefault("export_metadata", {})["export_profiles"] = export_profiles
     timeline["export_metadata"]["quality_gate_report"] = export_profiles[0]["quality_gate_report"]
@@ -457,7 +476,11 @@ def run_pipeline(input_path: str | Path, output_dir: str | Path, config: AppConf
     accepted = apply_retake_auto_accept_policy(accepted, config)
     write_diff_artifacts(paths, proposed, accepted)
     write_recovery_artifacts(paths, accepted)
-    accepted = render(input_path, paths, accepted, config, export_profile_names=export_profile_names)
+    try:
+        accepted = render(input_path, paths, accepted, config, export_profile_names=export_profile_names)
+    except MediaToolError:
+        write_json(paths.accepted_timeline, accepted)
+        raise
     accepted = transcribe_and_write(paths, accepted, cues=transcript_segments or [])
     write_json(paths.accepted_timeline, accepted)
     write_manifest(paths, {"input": str(input_path), "episode_id": episode_id, "artifacts": {"accepted_timeline": str(paths.accepted_timeline), "transcript": str(paths.transcript)}, "config": config_to_dict(config)})

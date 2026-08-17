@@ -46,6 +46,12 @@ def _default_timeout() -> float:
     return DEFAULT_TIMEOUT_SECONDS
 
 
+def _default_api_key(base_url: str) -> str | None:
+    if "minimax" in base_url.lower():
+        return os.getenv("MINIMAX_API_KEY")
+    return os.getenv("LOCAL_LLM_API_KEY")
+
+
 def _transcript_excerpt(segments: list[dict[str, Any]], max_chars: int = 3500) -> str:
     if not segments:
         return ""
@@ -330,6 +336,7 @@ def generate_ai_draft(
     base_url = base_url or _default_base_url()
     model = model or _default_model()
     timeout_s = _default_timeout() if timeout_s is None else timeout_s
+    api_key = api_key or _default_api_key(base_url)
 
     operations = timeline.get("operations") if isinstance(timeline, dict) else []
     candidates = [
@@ -407,6 +414,7 @@ def build_ai_explanation(
     base_explanation = explain_operation(timeline, operation_id)
     base_url = base_url or _default_base_url()
     model = model or _default_model()
+    api_key = api_key or _default_api_key(base_url)
     prompt = _build_explain_prompt(
         operation_id=operation_id,
         operation=base_explanation,

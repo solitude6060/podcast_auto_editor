@@ -4,6 +4,7 @@ from pathlib import Path
 
 import podcast_auto_editor.cli as cli
 from podcast_auto_editor.cli import main
+from podcast_auto_editor.media import MediaToolError
 from podcast_auto_editor.transcript import load_transcript_segments
 from podcast_auto_editor.timeline import create_noop_timeline, write_json
 
@@ -285,6 +286,40 @@ def test_render_cli_refuses_plain_accepted_retake_without_review(tmp_path, capsy
     assert "accepted retake_cut operations must carry successful auto_accept_policy or explicit manual review" in capsys.readouterr().err
 
 
+def test_render_cli_writes_failed_quality_metadata(tmp_path, capsys, monkeypatch):
+    timeline = create_noop_timeline(
+        {"path": "input.wav", "duration": 2.0},
+        [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 2}],
+    )
+    src = tmp_path / "timeline.json"
+    write_json(src, timeline)
+    audio = tmp_path / "input.wav"
+    audio.write_bytes(b"RIFF")
+
+    def fake_render(input_path, paths, timeline_obj, config, export_profile_names=None):
+        timeline_obj.setdefault("export_metadata", {})
+        timeline_obj["export_metadata"]["quality_gate_report"] = {
+            "passed": False,
+            "checks": [{"name": "loudness", "passed": False, "target": -16.0, "actual": -30.0}],
+        }
+        timeline_obj["export_metadata"]["failed_quality_profile"] = {
+            "name": "podcast-stereo",
+            "failed_checks": ["loudness"],
+        }
+        raise MediaToolError("quality gate failed for podcast-stereo: loudness")
+
+    monkeypatch.setattr(cli, "write_preview", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "write_diff_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "write_recovery_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "render", fake_render)
+
+    assert main(["render", str(audio), "--timeline", str(src), "--out", str(tmp_path / "runs")]) == 1
+    assert "quality gate failed for podcast-stereo: loudness" in capsys.readouterr().err
+    accepted = json.loads((tmp_path / "runs" / "input" / "timeline.accepted.v1.json").read_text())
+    assert accepted["export_metadata"]["failed_quality_profile"]["name"] == "podcast-stereo"
+    assert accepted["export_metadata"]["quality_gate_report"]["passed"] is False
+
+
 def test_review_accept_cli_marks_selected_retake_as_manually_reviewed(tmp_path):
     timeline = create_noop_timeline({"path": "input.wav", "duration": 2.0}, [{"track_id": "audio:0", "type": "audio", "sample_rate": 48000, "channels": 1}])
     timeline["operations"].append({"operation_id": "retake1", "type": "retake_cut", "source_range": {"start": 0.5, "end": 1.0}, "output_range": None, "affected_tracks": ["audio:0"], "state": "proposed", "risk": "low", "confidence": 0.95, "provenance": {}, "preview_ref": None, "diff_ref": None, "recovery_ref": None})
@@ -476,6 +511,49 @@ def test_report_cli_outputs_json_and_markdown(tmp_path, capsys):
     assert "Accepted edits: 1" in out
     assert "medium: 1" in out
     assert "transcript.speech_cleanup_heuristic: 1" in out
+
+
+def test_report_cli_surfaces_profile_quality_details(tmp_path, capsys):
+    root = tmp_path / "runs" / "ep1"
+    (root / "diff").mkdir(parents=True)
+    (root / "timeline.accepted.v1.json").write_text(json.dumps({
+        "operations": [],
+        "export_metadata": {
+            "quality_gate_report": {"passed": False, "checks": [{"name": "loudness", "passed": False, "target": -16.0, "actual": -17.3}]},
+            "export_profiles": [
+                {
+                    "name": "archive-wav",
+                    "path": str(root / "exports" / "episode.edited.wav"),
+                    "quality_gate_report": {
+                        "passed": True,
+                        "checks": [{"name": "loudness", "passed": True, "target": -16.0, "actual": -16.0}],
+                    },
+                },
+                {
+                    "name": "podcast-stereo",
+                    "path": str(root / "exports" / "episode.podcast-stereo.mp3"),
+                    "quality_gate_report": {
+                        "passed": False,
+                        "checks": [{"name": "loudness", "passed": False, "target": -16.0, "actual": -17.3}],
+                    },
+                },
+            ],
+            "failed_quality_profile": {"name": "podcast-stereo", "failed_checks": ["loudness"]},
+        },
+    }))
+    (root / "diff" / "timeline-diff.json").write_text(json.dumps({"proposed_count": 0, "accepted_count": 0, "rejected_count": 0, "total_removed_duration": 0.0}))
+
+    assert main(["report", str(root), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["quality_profiles"][1]["name"] == "podcast-stereo"
+    assert payload["failed_quality_profile"]["failed_checks"] == ["loudness"]
+
+    assert main(["report", str(root), "--format", "markdown"]) == 0
+    out = capsys.readouterr().out
+    assert "podcast-stereo: failed" in out
+    assert "loudness: failed (target -16.0, actual -17.3)" in out
+    assert "Quality gate: False" in out
+    assert "Failed profile: podcast-stereo (loudness)" in out
 
 
 def test_review_list_cli_outputs_operation_preview_table(tmp_path, capsys):

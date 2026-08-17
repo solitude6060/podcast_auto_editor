@@ -42,6 +42,8 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - True peak <= -1.0 dBTP.
 - Clipped samples measured from decoded PCM; missing metrics fail.
 - A/V sync uses measured stream durations; unmeasured stream duration fails.
+- Audio render uses measured two-pass FFmpeg loudnorm. Lossy podcast exports may retry with extra true-peak headroom (1 / 4 / 6 dB) only when the remaining failures are true peak or clipping; the encoded file must still pass the gates.
+- If a later export profile fails, `export_metadata.quality_gate_report` is that failed profile's report (`passed: false`), not the first passing profile. `render` / `run` write `timeline.accepted.v1.json` with that metadata before exiting non-zero.
 
 ## TDD record
 - Added regression tests for config defaults, timeline validation, silence proposals, retake policy, artifact paths, subtitles, chapters, CLI safety, FFmpeg acceptance paths, quality gates, and MP4 sync measurement.
@@ -67,8 +69,12 @@ Build a local-first, CLI-first, audio-first podcast auto-editor MVP with reversi
 - Advanced Phase A6 added replayable review session tests and CLI status/decide/rebuild coverage.
 - Advanced Phase A7 added static HTML report tests for escaped local operation/export artifact links.
 - Advanced Phase A8 added CI/release hygiene tests for uv GitHub Actions, changelog, release template, and `.omx/` local-only checks.
+- 2026-08-17 Phase 0 added two-pass loudnorm / lossy true-peak retry tests, then a regression that a later-profile quality failure must set the top-level gate to the failed report and persist it on the CLI `render` path.
 
 ## Verification
+- 2026-08-17 on `docs/2026-08-17-status-sync` after Phase 0: `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run --group dev pytest -q -p no:cacheprovider` => 314 passed, 11 skipped (325 collected). See `docs/reviews/2026-08-17-project-status-review.md`.
+- Same session: `UV_CACHE_DIR=/tmp/uv-cache-podcast-auto-editor uv run python -m compileall -q podcast_auto_editor tests` => passed.
+- Historical early-MVP counts below are the TDD record. They are not the current suite size.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider` => 29 passed.
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q podcast_auto_editor tests` => passed.
 - Architect final re-verification => APPROVED.

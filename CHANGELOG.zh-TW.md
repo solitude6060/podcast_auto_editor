@@ -5,6 +5,7 @@
 ## 尚未發布
 
 ### 新增
+- Podcaster-ready export hardening：audio render 改用 measured two-pass loudnorm；有損 podcast exports 必要時會用額外 true-peak headroom 重試；run report 會顯示每個 export quality target/actual 與失敗 profile。
 - 本機優先 podcast auto-editor MVP。
 - 可回復 timeline、preview、diff、recovery artifacts。
 - transcript、subtitle、chapter 輸出。
@@ -25,12 +26,16 @@
 - 新增 operation type `backchannel_cut`：對應短短的附和詞（"right"、"mhm"、"對對對"）。render 安全規則跟 `speech_cut` 一樣 — 永遠 proposed、不會 auto-accept、要 manual review + preview/diff/recovery artefacts。`detect_backchannel_candidates(transcript_segments, speaker_aggression=...)` 產生這類操作；`detect_speech_cleanup_candidates` 也新增同樣的 `speaker_aggression={"spk0": "off"}` 參數，可以讓主持人的附和詞風格保留，只剪掉來賓的填詞。
 - `ai draft --speaker-segments speaker_segments.v1.json --speaker-label spk0=Host --speaker-label spk1=Guest`：如果有 speaker_segments，AI draft prompt 會帶上 `Speakers:` 區塊，讓 LLM 把章節歸給特定講者。產生的 chapters 會帶選擇性的 `speaker_id` 欄位（LLM 沒歸時為 null）。向後相容：沒給 speaker_segments 的舊 run，prompt 跟輸出維持原樣。
 - 新增 `podcast-auto-editor diarize INPUT --provider mock|pyannote --out speaker_segments.v1.json --config X.json`：產生 `speaker_segments.v1.json`，給後續的 per-speaker AI 草稿引述、per-speaker filler 偵測使用。`mock` provider 讀 JSON config 後直接返回對應 segments，完全離線（不上網、不需要 HuggingFace token）。`pyannote` adapter 已經佈線完成，目前一律拋 `DiarizationProviderError`，訊息會區分「dependency missing（沒裝）」跟「integration deferred 到 PR-C2（裝了但實機整合等後續 PR）」。`transcript.v1` cue 可以選擇性帶上 `speaker_id` 欄位，validation 會保留它過去。
+- `ai draft` / `explain --with-ai` 在明確選 MiniMax-compatible endpoint 時會從環境變數讀 `MINIMAX_API_KEY`，但不會把 credential 寫進 artifact；`ai doctor` 也會回報 optional ASR / diarization Python packages。
 - Review dashboard 新增單一操作的詳情 endpoint：`GET /api/operation/<id>`，回傳跟 `/api/status` 的 `next` 一樣的標準欄位（operation_id、type、state、risk、confidence、source、detector、reason_code、evidence_text、required_review、preview_ref、removed_ref、decision_commands）。狀態 endpoint 新增篩選參數 `GET /api/status?filter=<type>`，可以先掃完所有 silence-cut 再處理 retake-cut。瀏覽器鍵盤快捷鍵：`a` accept、`r` reject、`u` undo、`j` 跳到下一個待審。`k` 目前是 `j` 的 forward alias，真正的「回到上一個」要等後續 PR。游標在 reviewer / note 輸入欄時快捷鍵會自動暫停。`/api/operation/<id>` 的 path guard 會在比對前先把 percent-encoded 變形（`%2e%2e`、`%2F…`）跟控制字元跟 `.`/`..` 擋掉。
 
 ### 變更
+- README 比較表加入 WyattBlue `auto-editor`，標明 `recipe.v1` 已實作，並寫明尚未做降噪。SDD 驗證改記目前收集到的測試數。`user_todo.md` 的 1.0 簽核（B1–B3）改由 `docs/plans/2026-08-17-adjustment-and-next.zh-TW.md` 取代。pyannote 在可選套件、`HF_TOKEN`、模型授權都齊時會跑真實 pipeline；「新增」裡寫 integration deferred 的那一條是當時紀錄。
 - 尚未正式發布；發布前需更新版本與驗證結果。
 
 ### 修正
 - 尚未正式發布。
+- 後面的 export profile 品質門檻失敗時，頂層 `quality_gate_report` 改記該失敗 profile；`render`／`run` 會寫出 `timeline.accepted.v1.json`，`report` 可以指出失敗 profile，而不只丟 traceback。
+- Pyannote pipeline 載入時，若物件沒有 `.to` 就略過可選的 CUDA 搬移，避免測試假物件或 CPU-only pipeline 在有 CUDA 的主機上崩潰。
 - `ai draft` 加入 `--dry-run` 互斥/別名行為，並對齊 `--no-net` 安全路徑。
 - `review serve` 在含 AI 草稿時會保留對 dashboard 的可見連結，避免 API/HTML 資訊斷層。

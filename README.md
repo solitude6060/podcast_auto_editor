@@ -7,20 +7,21 @@
 - **Runs entirely on your laptop.** No accounts, no sign-up, no upload. Your audio never leaves the disk.
 - **Free, no subscription, no metered credits.** Edit a 90-minute episode in March, take April off, edit twice in May. The cost is zero either way.
 - **Every edit is reviewable before it ships.** The pipeline produces a `timeline.v1` JSON of proposed cuts plus per-operation preview clips; you accept or reject each one in the dashboard. No AI "fix" lands silently.
-- **Reproducible edit recipes.** A run produces an artefact you can check into git and replay against the same source audio months later. No competing tool surveyed in `docs/research/2026-05-17-competitor-landscape.md` ships this.
+- **Reproducible edit recipes.** A run produces a `recipe.v1` artefact you can check into git and replay against the same source audio months later. The 2026-08-17 landscape found no commercial equivalent that is local, no-upload, and git-checkable as a `timeline.v1` artefact; see `docs/research/2026-08-17-competitor-landscape.md`.
 
 ## How it compares
 
-| | Descript | Riverside | Cleanvoice | Podcast Auto Editor |
-|---|---|---|---|---|
-| Runs locally | no | no | no | **yes** |
-| Audio uploaded to vendor | yes | yes | yes | **no** |
-| Monthly subscription floor | $16–50 | $24–79 | $11–90 | **free** |
-| Metered AI credits | yes (per minute) | yes | yes (per hour) | **no** |
-| Per-edit accept/reject UI | partial | partial | report only | **yes** |
-| Git-checkable edit recipe | no | no | no | **yes** (planned, see roadmap) |
+| | Descript | Riverside | Cleanvoice | auto-editor | Podcast Auto Editor |
+|---|---|---|---|---|---|
+| Runs locally | no | no | no | **yes** (CLI) | **yes** |
+| Audio uploaded to vendor | yes | yes | yes | **no** (CLI) | **no** |
+| Monthly subscription floor | $16/mo annual | $24/mo annual | $11/mo | **free** (CLI) | **free** |
+| Metered AI credits | yes (per minute) | yes | yes (per hour) | **no** | **no** |
+| Per-edit accept/reject UI | partial | partial | report only | no | **yes** |
+| Git-checkable edit recipe | no | no | no | CLI flags only | **yes** (`recipe.v1`) |
+| Denoise / enhance | yes | yes | yes | no | **no** (not shipped) |
 
-Sourced from `docs/research/2026-05-17-competitor-landscape.md` (2025–2026 vendor pricing pages and Reddit / G2 complaints).
+Sourced from `docs/research/2026-08-17-competitor-landscape.md` (official pages fetched 2026-08-17). WyattBlue `auto-editor` occupies local CLI silence-cut (4,984 stars that day). This project does not ship denoise.
 
 ## What this is
 
@@ -105,7 +106,7 @@ Use `transcribe` to generate a `transcript.v1` JSON file through a local provide
 uv run python -m podcast_auto_editor transcribe input.wav --provider stub --out transcript.json
 ```
 
-The built-in `stub` provider is deterministic and dependency-free for tests and workflow integration. Real ASR providers should be added later as optional adapters; provider output is validated before any transcript file is written.
+The built-in `stub` provider is deterministic and dependency-free for tests and workflow integration. Optional in-tree adapters are `faster-whisper-local`, `whisper-cpp-local`, and `qwen3-asr-local`. Default remains `stub`. Provider output is validated before any transcript file is written.
 
 `run --transcript-json` accepts either:
 
@@ -134,6 +135,8 @@ Use `dry-run` to create inspectable timeline, diff, recovery, preview metadata, 
 Removed-segment previews are generated from the actual operation source ranges, so review audio corresponds to what the timeline proposes to remove.
 
 Render exits with a clear quality-gate failure when loudness, true peak, clipping, or A/V sync checks fail; failed quality metadata is diagnostic, not a publishable success state.
+
+Rendered audio uses measured two-pass FFmpeg loudnorm per export profile. Lossy podcast exports reserve extra true-peak headroom before MP3/AAC encoding, then re-measure the encoded file; the export is still rejected unless the final file passes the configured loudness, true peak, and clipping gates. Markdown, JSON, and HTML reports include per-profile check targets and actual values, so a failed `podcast-stereo` or `podcast-mono` export is visible without opening `timeline.accepted.v1.json`.
 
 Speech cleanup heuristics can propose filler or false-start removals as `speech_cut` operations, but these speech-changing edits stay proposed until explicitly accepted with `review-accept`.
 
@@ -178,7 +181,7 @@ Chinese WER vs whisper-large-v3 (per Qwen3-ASR model card): WenetSpeech meeting 
 The tool can attach a `speaker_id` label to each transcript cue so AI chapter drafts, show-notes, and per-speaker filler detection can attribute speech correctly. The provider interface is pluggable:
 
 - **`mock`** (offline, ships in this repo) reads a JSON config of expected segments and returns them verbatim. Use this in CI and on dev machines without a HuggingFace token.
-- **`pyannote`** wraps the `pyannote-audio` 3.x community pipeline via a lazy import. Real model integration is being added in a follow-up PR; running it today raises a clear `DiarizationProviderError` telling you whether to install the dep or wait for the integration.
+- **`pyannote`** wraps the `pyannote-audio` 3.x community pipeline via a lazy import. When the optional package is installed, `HF_TOKEN` is set, and the model license is accepted, `diarize --provider pyannote` runs the real pipeline. Missing deps, a missing or invalid token, or an unaccepted license raise `DiarizationProviderError` with setup guidance.
 
 ```bash
 # Mock provider — reads segments from a JSON config (offline)
@@ -253,6 +256,8 @@ uv run python -m podcast_auto_editor explain runs/episode/timeline.proposed.v1.j
 ```
 
 The server-side AI calls are disabled automatically in `--dry-prompt` / `--dry-run`.
+
+For OpenAI-compatible local or fallback endpoints, pass `--base-url` / `--model` explicitly. When the base URL points at MiniMax, `ai draft` and `explain --with-ai` read `MINIMAX_API_KEY` from the environment if no `--api-key` is passed; the key is used only for the request and is not written to AI artifacts, reports, or recipes. Local endpoints continue to use `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, and optional `LOCAL_LLM_API_KEY`.
 
 ## Docker AI-stack e2e smoke check
 
@@ -392,3 +397,5 @@ LOCAL_LLM_BASE_URL=http://127.0.0.1:9090/v1 \
 ```
 
 `api-local` is for an existing llama.cpp/OpenAI-compatible API model such as `qwen3.6-27b-turbo3`; it prints no download command and only checks `/v1/models` when asked for readiness.
+
+`ai doctor` also reports optional Python packages for `faster-whisper-local`, `qwen3-asr-local`, and `pyannote`; missing optional packages are warnings unless the selected command requires them.

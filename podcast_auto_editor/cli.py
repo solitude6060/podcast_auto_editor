@@ -365,8 +365,11 @@ def _build_run_report(run_dir: str | Path) -> dict:
     root = Path(run_dir)
     diff = read_json(root / "diff" / "timeline-diff.json") if (root / "diff" / "timeline-diff.json").exists() else {}
     accepted = read_json(root / "timeline.accepted.v1.json") if (root / "timeline.accepted.v1.json").exists() else {}
-    derived = accepted.get("export_metadata", {}).get("derived_assets", {})
-    quality = accepted.get("export_metadata", {}).get("quality_gate_report")
+    export_metadata = accepted.get("export_metadata", {})
+    derived = export_metadata.get("derived_assets", {})
+    quality = export_metadata.get("quality_gate_report")
+    quality_profiles = export_metadata.get("export_profiles") if isinstance(export_metadata.get("export_profiles"), list) else []
+    failed_quality_profile = export_metadata.get("failed_quality_profile") if isinstance(export_metadata.get("failed_quality_profile"), dict) else None
     warnings = []
     for key in ("cue_errors", "chapter_errors"):
         warnings.extend(derived.get(key, []) or [])
@@ -381,6 +384,8 @@ def _build_run_report(run_dir: str | Path) -> dict:
         "operation_groups": _group_operations_for_report(operations),
         "total_removed_duration": diff.get("total_removed_duration", 0.0),
         "quality_gate": quality,
+        "quality_profiles": quality_profiles,
+        "failed_quality_profile": failed_quality_profile,
         "derived_assets": {key: value for key, value in derived.items() if key not in {"cue_errors", "chapter_errors"}},
         "warnings": warnings,
     }
@@ -430,6 +435,22 @@ def _format_run_report_markdown(report: dict) -> str:
         "## Quality",
         "",
         f"- Quality gate: {report['quality_gate'].get('passed') if isinstance(report.get('quality_gate'), dict) else 'not measured'}",
+    ])
+    failed_profile = report.get("failed_quality_profile")
+    if isinstance(failed_profile, dict):
+        checks = ", ".join(str(check) for check in failed_profile.get("failed_checks") or [])
+        lines.append(f"- Failed profile: {failed_profile.get('name')} ({checks or 'unknown'})")
+    quality_profiles = report.get("quality_profiles") or []
+    if quality_profiles:
+        lines.extend(["", "### Export profiles", ""])
+        for profile in quality_profiles:
+            gate = profile.get("quality_gate_report") or {}
+            status = "passed" if gate.get("passed") is True else "failed" if gate.get("passed") is False else "not measured"
+            lines.append(f"- {profile.get('name')}: {status}")
+            for check in gate.get("checks") or []:
+                check_status = "passed" if check.get("passed") is True else "failed" if check.get("passed") is False else "not measured"
+                lines.append(f"  - {check.get('name')}: {check_status} (target {check.get('target')}, actual {check.get('actual')})")
+    lines.extend([
         "",
         "## Warnings",
         "",
@@ -607,6 +628,10 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        except MediaToolError as exc:
+            write_json(paths.accepted_timeline, timeline)
+            print(str(exc), file=sys.stderr)
+            return 1
         rendered = transcribe_and_write(paths, rendered)
         write_json(paths.accepted_timeline, rendered)
         print(paths.accepted_timeline)
@@ -622,6 +647,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             paths = run_pipeline(args.input, args.out, config, episode_id=args.episode_id, transcript_segments=transcript_segments, export_profile_names=args.export_profile)
         except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except MediaToolError as exc:
             print(str(exc), file=sys.stderr)
             return 1
         print(paths.root)
