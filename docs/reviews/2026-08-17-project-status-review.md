@@ -7,7 +7,7 @@ Traditional Chinese: [`2026-08-17-project-status-review.zh-TW.md`](2026-08-17-pr
 **Working tree:** dirty — 17 tracked files, +383/−15, plus untracked `.claude/`, `.omc/`, and 2026-05-18 podcaster-ready docs  
 **Last commit age:** 91 days as of 2026-08-17
 
-**Phase 0 addendum (same day):** Hygiene landed on `docs/2026-08-17-status-sync`. README now marks `recipe.v1` implemented and pyannote as runnable when optional deps exist. The 2026-05-18 quality patch is `f70f7ac`. The CUDA `.to` guard is `d02b1b8`. Working-tree dirt from that patch is no longer current. Test collect count after the new regression: 325 (314 passed, 11 skipped on this host).
+**Phase 0 addendum (same day):** Hygiene landed on `docs/2026-08-17-status-sync`. README now marks `recipe.v1` implemented and pyannote as runnable when optional deps exist. The 2026-05-18 quality patch is `08a165b`. The CUDA `.to` guard is `86d9560`. Working-tree dirt from that patch is no longer current. Test collect count after the new regression: 325 (314 passed, 11 skipped on this host).
 
 ---
 

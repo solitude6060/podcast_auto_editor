@@ -13,9 +13,9 @@ Last updated: 2026-08-17
 - Interpreted “complete every no-decision engineering item” as Phase 0 only.
 - Did **not**: bump `0.1.0`, run a real episode, delete 19 worktrees, push, or open a PR.
 - Branch: `docs/2026-08-17-status-sync` from `dev` `2c9a81d` (same checkout, no extra worktree).
-- `d02b1b8` — `fix: skip CUDA move when pyannote pipeline has no .to`
-- `f70f7ac` — `feat: two-pass loudnorm and per-profile quality reports`
-- Docs commit on the same branch: README table + SDD snapshot + `user_todo` supersession + 2026-08-17 review/research/plan + these three files.
+- `86d9560` — `fix: skip CUDA move when pyannote pipeline has no .to`
+- `08a165b` — `feat: two-pass loudnorm and per-profile quality reports`
+- `21e68ba` — `docs: sync README, SDD, and status with 2026-08-17 review`
 - Verification (before the docs commit; docs do not change tests):
 
 ```bash
@@ -43,4 +43,4 @@ git ls-files .omx
 
 - `user_todo.md` B1–B3 (release date / 1.1 defer list / release branch) as the next autopilot gate.
 - Adding Lattifai decode or another ASR provider before a real episode.
-- Discarding `f70f7ac` (the quality patch was complete and kept).
+- Discarding `08a165b` (the quality patch was complete and kept).

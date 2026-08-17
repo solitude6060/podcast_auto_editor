@@ -6,7 +6,7 @@ Date: 2026-08-17
 Inputs: `docs/sdd/podcast-auto-editor-mvp.md`, `docs/reviews/2026-08-17-project-status-review.md`, `docs/research/2026-08-17-competitor-landscape.md`, `user_todo.md`, `docs/plans/2026-05-17-persona-ab-stage1.md`  
 Workflow: plan-file only. No implementation in this document.
 
-**Phase 0 status (2026-08-17):** Landed on `docs/2026-08-17-status-sync` as `d02b1b8` (pyannote CUDA `.to` guard), `f70f7ac` (two-pass loudnorm / reports), plus a docs commit on the same branch. The 2026-05-18 quality patch was kept. 19 locked worktrees were left untouched. No version bump. No `dev` → `main`. No push/PR.
+**Phase 0 status (2026-08-17):** Landed on `docs/2026-08-17-status-sync` as `86d9560` (pyannote CUDA `.to` guard), `08a165b` (two-pass loudnorm / reports), `21e68ba` (docs sync). The 2026-05-18 quality patch was kept. 19 locked worktrees were left untouched. No version bump. No `dev` → `main`. No push/PR.
 
 ---
 
@@ -115,7 +115,7 @@ This plan is a knowledge artifact. Implementation PRs still need their own revie
 
 Steps:
 
-1. Branch from `dev`: `docs/2026-08-17-status-sync`. Quality patch kept on the same branch (`f70f7ac`) instead of a second `feature/podcaster-ready-quality` branch.
+1. Branch from `dev`: `docs/2026-08-17-status-sync`. Quality patch kept on the same branch (`08a165b`) instead of a second `feature/podcaster-ready-quality` branch.
 2. Read the uncommitted diff. Tests in `tests/test_exports.py` and `tests/test_media_sync.py` matched the patch; it was complete TDD work and was committed.
 3. Rewrite the README comparison table: add `auto-editor`; set recipe to implemented; state denoise is not shipped.
 4. Update SDD verification to current collect count and point at this review.

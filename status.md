@@ -4,14 +4,14 @@ Last updated: 2026-08-17
 
 ## 繁體中文快照
 
-階段 0 已落在 `docs/2026-08-17-status-sync`：`d02b1b8`（pyannote CUDA `.to`）、`f70f7ac`（two-pass loudnorm／報告）、以及同分支的文件對齊。驗證：314 passed、11 skipped、`compileall` 通過。版本仍是 `0.1.0`。沒有 push、沒有開 PR、沒有 `dev` → `main`。下一步要你提供一集真實口語音檔與一個已安裝的非 stub 語音辨識。
+階段 0 已落在 `docs/2026-08-17-status-sync`：`86d9560`（pyannote CUDA `.to`）、`08a165b`（two-pass loudnorm／報告）、以及同分支的文件對齊。驗證：314 passed、11 skipped、`compileall` 通過。版本仍是 `0.1.0`。沒有 push、沒有開 PR、沒有 `dev` → `main`。下一步要你提供一集真實口語音檔與一個已安裝的非 stub 語音辨識。
 
 ---
 
 ## Evidence / progress
 
 - **Feature branch:** `docs/2026-08-17-status-sync` off `dev` `2c9a81d`.
-- **Phase 0 commits:** `d02b1b8` (CUDA `.to` guard), `f70f7ac` (loudnorm / reports). Docs commit is the tip of this branch after the hygiene PR lands.
+- **Phase 0 commits:** `86d9560` (CUDA `.to` guard), `08a165b` (loudnorm / reports), `21e68ba` (README / SDD / status sync).
 - **Production branch:** `main` @ `ae3ec41`. `dev` remains 40 commits ahead of `main`; this branch is not promoted.
 - **Tests:** 314 passed, 11 skipped (325 collected) on 2026-08-17 after the new pyannote regression.
 - **Version:** `0.1.0` in `pyproject.toml`. Do not bump to `1.0.0`.

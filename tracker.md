@@ -13,8 +13,8 @@ Last updated: 2026-08-17
 | Track | Status | Next item |
 |---|---|---|
 | Hygiene / docs sync | done on branch | Push / PR only if the operator asks |
-| Loudness / export | landed `f70f7ac` | Re-measure on a real episode |
-| Pyannote CUDA host crash | landed `d02b1b8` | None |
+| Loudness / export | landed `08a165b` | Re-measure on a real episode |
+| Pyannote CUDA host crash | landed `86d9560` | None |
 | Real-episode evidence | pending | Operator audio + one ASR; fix-log |
 | Review UX | deferred | Only if Phase 1 says cuts are hard to judge |
 | Chinese ASR quality | adapters exist | Real run not done; Belle real test is env-gated |
